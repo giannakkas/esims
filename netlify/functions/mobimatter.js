@@ -6,7 +6,7 @@ exports.handler = async function () {
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-01",
+    SHOPIFY_API_VERSION = "2023-10", // Safe version
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -35,13 +35,12 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).join(", ");
+      const countries = (product.countries || []).map(c => `:flag-${c.toLowerCase()}:`).join(" ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
-
       if (!title || !price) {
         failed.push({ title: title || "(missing)", reason: "Missing title or price" });
         continue;
@@ -60,23 +59,19 @@ exports.handler = async function () {
         mutation {
           productCreate(input: {
             title: "${title.replace(/"/g, '\\"')}",
-            bodyHtml: """${body_html.replace(/"/g, '\\"')}""",
-            vendor: "${(product.providerName || "Mobimatter").replace(/"/g, '\\"')}",
+            bodyHtml: """${body_html.replace(/"""/g, '\\"\\"\\"')}""",
+            vendor: "${product.providerName || "Mobimatter"}",
             productType: "eSIM",
             tags: ["${has5G}", "eSIM"],
-            variants: [{
+            variants: {
               price: "${price}",
-              sku: "${product.uniqueId}",
-              inventoryQuantity: 999999,
-              fulfillmentService: "manual",
-              taxable: true
-            }],
-            images: [{
+              sku: "${product.uniqueId}"
+            },
+            images: {
               src: "${product.providerLogo}"
-            }]
+            }
           }) {
             product {
-              title
               id
             }
             userErrors {
@@ -99,26 +94,16 @@ exports.handler = async function () {
         }
       );
 
-      const json = await shopifyRes.json();
+      const result = await shopifyRes.json();
+      const userErrors = result.data?.productCreate?.userErrors;
 
-      if (json.errors) {
+      if (result.errors || (userErrors && userErrors.length > 0)) {
         failed.push({
           title,
-          reason: `GraphQL Error: ${JSON.stringify(json.errors)}`
+          reason: result.errors?.[0]?.message || userErrors?.[0]?.message || "Unknown GraphQL error",
         });
-      } else if (json.data?.productCreate?.userErrors?.length) {
-        const messages = json.data.productCreate.userErrors.map(e => e.message).join("; ");
-        failed.push({
-          title,
-          reason: `User Error(s): ${messages}`
-        });
-      } else if (json.data?.productCreate?.product?.title) {
-        created.push(json.data.productCreate.product.title);
       } else {
-        failed.push({
-          title,
-          reason: "Unknown error – no product created, no errors returned"
-        });
+        created.push(title);
       }
     }
 
