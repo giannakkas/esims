@@ -1,8 +1,3 @@
 [build]
-  functions = "netlify-functions"
-
-[[scheduled_functions]]
-  name = "mobimatter-sync"
-  schedule = "0 0 * * *"  # Run every day at midnight UTC
-  function = "mobimatter"
-  timeout = 900  # Max timeout of 900 seconds (15 minutes)
+  functions = "netlify/functions"
+  publish = "public"  # or wherever your site is published from (e.g. build folder)
