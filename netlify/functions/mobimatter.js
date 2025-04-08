@@ -1,87 +1,84 @@
-const axios = require('axios');
+const fetch = require("node-fetch");
 
-exports.handler = async (event, context) => {
-  // Configure API constants
-  const API_BASE = 'https://api.mobimatter.com/mobimatter/api/v2';
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-API-KEY': process.env.MOBIMATTER_API_KEY,
-    'merchantId': process.env.MOBIMATTER_MERCHANT_ID
-  };
+exports.handler = async function () {
+  const {
+    MOBIMATTER_API_KEY,
+    MOBIMATTER_MERCHANT_ID,
+    MOBIMATTER_SUBSCRIPTION_KEY, // NEW REQUIRED KEY
+    SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+    SHOPIFY_API_VERSION = "2025-04",
+  } = process.env;
 
-  // CORS headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type'
-  };
+  const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const created = [];
+  const failed = [];
 
   try {
-    // Handle GET requests (product listing)
-    if (event.httpMethod === 'GET') {
-      const response = await axios.get(`${API_BASE}/products`, { headers });
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify(response.data)
-      };
-    }
-
-    // Handle POST requests (order creation)
-    if (event.httpMethod === 'POST') {
-      const input = JSON.parse(event.body);
-      
-      // Validate input
-      if (!input.planId || !input.customerEmail) {
-        return {
-          statusCode: 400,
-          headers: corsHeaders,
-          body: JSON.stringify({
-            error: 'Missing planId or customerEmail'
-          })
-        };
+    // 1. Fetch products from MobiMatter (with subscription key)
+    const response = await fetch(mobimatterUrl, {
+      headers: {
+        "api-key": MOBIMATTER_API_KEY,
+        "merchantId": MOBIMATTER_MERCHANT_ID,
+        "Ocp-Apim-Subscription-Key": MOBIMATTER_SUBSCRIPTION_KEY // CRITICAL ADDITION
       }
-
-      // Create order
-      const response = await axios.post(
-        `${API_BASE}/order`, // Confirmed working endpoint
-        {
-          planId: input.planId,
-          customerEmail: input.customerEmail
-        },
-        { headers }
-      );
-
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify(response.data)
-      };
-    }
-
-    // Handle unsupported methods
-    return {
-      statusCode: 405,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Method Not Allowed' })
-    };
-
-  } catch (error) {
-    // Enhanced error logging
-    console.error('API Error:', {
-      url: error.config?.url,
-      status: error.response?.status,
-      data: error.response?.data,
-      stack: error.stack
     });
 
+    if (!response.ok) {
+      throw new Error(`MobiMatter API failed: ${response.status} ${await response.text()}`);
+    }
+
+    const { result: products } = await response.json();
+
+    // 2. Process products (limited to 10 for safety)
+    for (const product of products.slice(0, 10)) {
+      try {
+        // ... [rest of your existing product processing logic] ...
+
+        // 3. Create Shopify product
+        const shopifyRes = await fetch(
+          `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({ 
+              query: mutation, 
+              variables 
+            }),
+          }
+        );
+
+        // ... [rest of your Shopify response handling] ...
+
+      } catch (productErr) {
+        failed.push({
+          title: product.productFamilyName || "Unknown Product",
+          reason: productErr.message
+        });
+      }
+    }
+
     return {
-      statusCode: error.response?.status || 500,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        error: 'API Request Failed',
-        message: error.message,
-        ...(error.response?.data && { details: error.response.data })
-      })
+      statusCode: 200,
+      body: JSON.stringify({ 
+        success: true,
+        created: created.length,
+        failed: failed.length,
+        details: { created, failed }
+      }),
+    };
+
+  } catch (err) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ 
+        error: "Sync failed",
+        message: err.message,
+        stack: process.env.NODE_ENV === "development" ? err.stack : undefined
+      }),
     };
   }
 };
