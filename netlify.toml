@@ -3,5 +3,5 @@
   publish = "."
 
 [functions]
-  # Set timeout for the mobimatter function to 26 seconds
-  timeout = 26
+  [functions.timeout]
+  seconds = 26
