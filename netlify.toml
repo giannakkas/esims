@@ -1,14 +1,6 @@
 [build]
-  functions = "functions"
+  functions = "functions"  # Points to your functions folder
 
 [functions]
   [functions.timeout]
-    default = 10
-
-# Optional security headers
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    Content-Security-Policy = "default-src 'self'"
-    Strict-Transport-Security = "max-age=31536000"
+    default = 10  # Timeout in seconds
