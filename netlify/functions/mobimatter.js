@@ -62,7 +62,9 @@ exports.handler = async function () {
           vendor: product.providerName || "Mobimatter",
           product_type: "eSIM",
           tags: [has5G, "eSIM"],
-          published_at: new Date().toISOString(), // 🔥 Publish it!
+          status: "active",
+          published_scope: "web",
+          published_at: new Date().toISOString(), // 👈 forces publishing to Online Store
           variants: [
             {
               price,
@@ -80,6 +82,9 @@ exports.handler = async function () {
           ],
         },
       };
+
+      // ✅ Add this to log what’s being sent to Shopify
+      console.log("Sending to Shopify:", JSON.stringify(productPayload, null, 2));
 
       const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`,
