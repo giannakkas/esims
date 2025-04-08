@@ -1,26 +1,11 @@
 [build]
-  command = "npm run build"  # Only if you have a frontend build step
-  publish = "dist"          # Your frontend build directory (adjust if needed)
-  functions = "functions"   # Points to your functions folder
+  functions = "functions"
 
 [functions]
-  # Timeout settings (now in object format)
   [functions.timeout]
-    # Default timeout for all functions (max 10s for standard, 15s for background)
-    default = 10  # Seconds
+    default = 10
 
-# Environment variables (reference only - set real values in Netlify UI)
-[build.environment]
-  NODE_VERSION = "18"  # Shopify requires Node 16+
-
-# Optional: Clean URL redirects for API endpoints
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-  force = true
-
-# Security headers (recommended)
+# Optional security headers
 [[headers]]
   for = "/*"
   [headers.values]
