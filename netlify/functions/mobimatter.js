@@ -26,6 +26,21 @@ exports.handler = async function () {
     const { result: products } = await response.json();
     const created = [], failed = [];
 
+    const mutation = `
+      mutation productCreate($input: ProductInput!) {
+        productCreate(input: $input) {
+          product {
+            id
+            title
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
     for (const product of products.slice(0, 10)) {
       const details = {};
       (product.productDetails || []).forEach(({ name, value }) => {
@@ -46,38 +61,36 @@ exports.handler = async function () {
         continue;
       }
 
-      const description = `Network: ${has5G}\nSpeed: ${speed}\nTop-up: ${topUp}\nCountries: ${countries}\nData: ${dataAmount}\nValidity: ${validity} days`;
-
-      const mutation = `
-        mutation {
-          productCreate(input: {
-            title: "${title.replace(/"/g, '\\"')}",
-            bodyHtml: "<pre>${description.replace(/"/g, '\\"')}</pre>",
-            vendor: "${product.providerName || "Mobimatter"}",
-            productType: "eSIM",
-            tags: ["${has5G}", "eSIM"],
-            variants: [
-              {
-                price: "${price}",
-                sku: "${product.uniqueId}",
-                inventoryQuantity: 999999,
-                fulfillmentService: "manual",
-                inventoryManagement: null,
-                taxable: true
-              }
-            ]
-          }) {
-            product {
-              id
-              title
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }
+      const bodyHtml = `
+        <p><strong>Network:</strong> ${has5G}</p>
+        <p><strong>Speed:</strong> ${speed}</p>
+        <p><strong>Top-up:</strong> ${topUp}</p>
+        <p><strong>Countries:</strong> ${countries}</p>
+        <p><strong>Data:</strong> ${dataAmount}</p>
+        <p><strong>Validity:</strong> ${validity} days</p>
       `;
+
+      const variables = {
+        input: {
+          title,
+          bodyHtml,
+          vendor: product.providerName || "Mobimatter",
+          productType: "eSIM",
+          tags: [has5G, "eSIM"],
+          variants: [
+            {
+              price,
+              sku: product.uniqueId,
+              inventoryQuantity: 999999,
+              fulfillmentService: "manual",
+              inventoryManagement: null,
+              taxable: true
+            }
+          ],
+          images: product.providerLogo ? [{ src: product.providerLogo }] : [],
+          status: "ACTIVE",
+        }
+      };
 
       const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
@@ -87,17 +100,21 @@ exports.handler = async function () {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify({ query: mutation }),
+          body: JSON.stringify({ query: mutation, variables }),
         }
       );
 
-      const shopifyResult = await shopifyRes.json();
-      if (shopifyResult.data?.productCreate?.product?.title) {
-        created.push(shopifyResult.data.productCreate.product.title);
+      const json = await shopifyRes.json();
+
+      const errorMessage = json.errors?.[0]?.message;
+      const userErrors = json.data?.productCreate?.userErrors;
+
+      if (json.data?.productCreate?.product?.title) {
+        created.push(json.data.productCreate.product.title);
       } else {
         failed.push({
           title,
-          reason: JSON.stringify(shopifyResult.errors || shopifyResult.data?.productCreate?.userErrors)
+          reason: errorMessage || JSON.stringify(userErrors)
         });
       }
     }
