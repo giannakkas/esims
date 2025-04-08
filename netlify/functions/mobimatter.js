@@ -35,7 +35,7 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).map(c => `:flag-${c.toLowerCase()}:`).join(" ");
+      const countries = (product.countries || []).join(", ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
@@ -63,8 +63,8 @@ exports.handler = async function () {
           product_type: "eSIM",
           tags: [has5G, "eSIM"],
           status: "active",
-          published_scope: "web",
-          published_at: new Date().toISOString(), // 👈 forces publishing to Online Store
+          published_scope: "global",
+          published_at: new Date().toISOString(),
           variants: [
             {
               price,
@@ -82,9 +82,6 @@ exports.handler = async function () {
           ],
         },
       };
-
-      // ✅ Add this to log what’s being sent to Shopify
-      console.log("Sending to Shopify:", JSON.stringify(productPayload, null, 2));
 
       const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`,
