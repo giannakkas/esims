@@ -1,13 +1,5 @@
 const fetch = require("node-fetch");
 
-function getFlagEmoji(countryCode) {
-  if (!countryCode || countryCode.length !== 2) return "";
-  const codePoints = [...countryCode.toUpperCase()].map(
-    char => 127397 + char.charCodeAt()
-  );
-  return String.fromCodePoint(...codePoints);
-}
-
 exports.handler = async function () {
   const {
     MOBIMATTER_API_KEY,
@@ -43,14 +35,12 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || [])
-        .map(code => `${getFlagEmoji(code)} ${code}`)
-        .join(", ");
+      const countries = (product.countries || []).map(code => `:flag-${code.toLowerCase()}:`).join(" ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
+
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
-
       if (!title || !price) {
         failed.push({ title: title || "(missing)", reason: "Missing title or price" });
         continue;
@@ -72,6 +62,8 @@ exports.handler = async function () {
           vendor: product.providerName || "Mobimatter",
           product_type: "eSIM",
           tags: [has5G, "eSIM"],
+          status: "active",
+          published_scope: "web",
           variants: [
             {
               price,
@@ -82,7 +74,11 @@ exports.handler = async function () {
               taxable: true,
             },
           ],
-          images: product.providerLogo ? [{ src: product.providerLogo }] : [],
+          images: [
+            {
+              src: product.providerLogo,
+            },
+          ],
         },
       };
 
@@ -113,10 +109,7 @@ exports.handler = async function () {
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Mobimatter fetch or Shopify sync failed",
-        message: err.message,
-      }),
+      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
     };
   }
 };
