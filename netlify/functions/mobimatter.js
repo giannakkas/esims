@@ -35,7 +35,7 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).map(code => `:flag-${code.toLowerCase()}:`).join(" ");
+      const countries = (product.countries || []).map(c => `:flag-${c.toLowerCase()}:`).join(" ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
@@ -62,8 +62,7 @@ exports.handler = async function () {
           vendor: product.providerName || "Mobimatter",
           product_type: "eSIM",
           tags: [has5G, "eSIM"],
-          status: "active",
-          published_scope: "web",
+          published_at: new Date().toISOString(), // 🔥 Publish it!
           variants: [
             {
               price,
