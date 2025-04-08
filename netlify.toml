@@ -3,3 +3,11 @@
 
 [functions]
   directory = "netlify/functions"   # Correct path to the functions directory
+
+  [[plugins]]
+  package = "@netlify/plugin-scheduled-functions"
+
+[[plugins.inputs.schedule]]
+  name = "sync-mobimatter-products"
+  function = "mobimatter"
+  schedule = "0 0 * * *"  # Every day at midnight UTC
