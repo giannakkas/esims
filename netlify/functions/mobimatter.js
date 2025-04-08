@@ -93,7 +93,7 @@ exports.handler = async (event) => {
       try {
         const details = getProductDetails(product);
         
-        // 3. Ensure price is available
+        // 3. Ensure price is available and send it in the variants array
         const price = product.retailPrice || 'Not Available';
 
         // 4. Create Shopify product with enhanced description
@@ -123,7 +123,21 @@ exports.handler = async (event) => {
                     `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
                     ...(product.countries || []).map(c => `country-${c}`)
                   ],
-                  price: price,
+                  variants: [
+                    {
+                      price: price,
+                      sku: product.uniqueId,
+                      inventory_quantity: 999999,
+                      fulfillment_service: "manual",
+                      inventory_management: null,
+                      taxable: true
+                    }
+                  ],
+                  images: [
+                    {
+                      src: product.providerLogo
+                    }
+                  ],
                   status: "ACTIVE"
                 }
               }
