@@ -1,21 +1,12 @@
 const fetch = require("node-fetch");
 
-// Example of flag URLs for countries (you can get a larger mapping)
-const countryFlags = {
-  "VN": "https://flagcdn.com/w320/vn.png",
-  "US": "https://flagcdn.com/w320/us.png",
-  "FR": "https://flagcdn.com/w320/fr.png",
-  "DE": "https://flagcdn.com/w320/de.png",
-  // Add other countries as needed
-};
-
 exports.handler = async function () {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-01",
+    SHOPIFY_API_VERSION = "2025-04",
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -35,7 +26,7 @@ exports.handler = async function () {
     const { result: products } = await response.json();
     const created = [], failed = [];
 
-    for (const product of products.slice(0, 100)) { // limit to 100 for testing
+    for (const product of products.slice(0, 10)) { // limit to 10 for testing
       const details = {};
       (product.productDetails || []).forEach(({ name, value }) => {
         details[name.trim()] = value;
@@ -44,13 +35,7 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || [])
-        .map(countryCode => {
-          const flagUrl = countryFlags[countryCode] || ""; // Get the flag URL
-          const countryName = countryCode; // You can replace this with a map for country names
-          return flagUrl ? `<img src="${flagUrl}" alt="${countryName}" style="width: 20px; margin-right: 5px;"> ${countryName}` : countryName;
-        })
-        .join(", ");
+      const countries = (product.countries || []).join(", ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
