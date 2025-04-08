@@ -83,6 +83,8 @@ exports.handler = async (event) => {
     if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
     const { result: products } = await mobiResponse.json();
 
+    console.log(`Fetched ${products.length} products.`); // Log fetched products
+
     // 2. Process products with time checks
     for (const product of products.slice(0, CONFIG.PRODUCTS_PER_RUN)) {
       if (Date.now() - startTime > CONFIG.SAFETY_TIMEOUT) {
@@ -92,6 +94,7 @@ exports.handler = async (event) => {
 
       try {
         const details = getProductDetails(product);
+        console.log(`Processing product: ${details.PLAN_TITLE || product.productFamilyName}`); // Log product being processed
         
         // 3. Create Shopify product with enhanced description
         const createResponse = await fetch(
@@ -144,6 +147,8 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
+        console.log(createData); // Log Shopify response for debugging
+
         if (createData.errors) throw new Error(createData.errors[0].message);
 
         results.created.push({
