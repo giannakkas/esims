@@ -1,9 +1,8 @@
 [build]
-  functions = "netlify/functions" # Directory for functions
-  publish = "public"  # Define the publish directory for static files
+  publish = "public"  # Set your publish directory, replace if different
+  functions = "netlify/functions"  # Function directory
 
-[functions]
-  mobimatter = { 
-    path = "/.netlify/functions/mobimatter"
-    timeout = 30
-  }
+[[functions]]
+  name = "mobimatter"
+  path = "/.netlify/functions/mobimatter"
+  timeout = 30
