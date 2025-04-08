@@ -6,7 +6,7 @@ exports.handler = async function () {
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2023-10", // Safe version
+    SHOPIFY_API_VERSION = "2023-10",
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -46,7 +46,7 @@ exports.handler = async function () {
         continue;
       }
 
-      const body_html = `
+      const descriptionHtml = `
         <p><strong>Network:</strong> ${has5G}</p>
         <p><strong>Speed:</strong> ${speed}</p>
         <p><strong>Top-up:</strong> ${topUp}</p>
@@ -59,7 +59,7 @@ exports.handler = async function () {
         mutation {
           productCreate(input: {
             title: "${title.replace(/"/g, '\\"')}",
-            bodyHtml: """${body_html.replace(/"""/g, '\\"\\"\\"')}""",
+            descriptionHtml: """${descriptionHtml.replace(/"""/g, '\\"\\"\\"')}""",
             vendor: "${product.providerName || "Mobimatter"}",
             productType: "eSIM",
             tags: ["${has5G}", "eSIM"],
@@ -73,6 +73,7 @@ exports.handler = async function () {
           }) {
             product {
               id
+              title
             }
             userErrors {
               field
