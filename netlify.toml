@@ -1,13 +1,7 @@
 [build]
-  functions = "netlify/functions"   # Use relative path to the functions folder
+  functions = "netlify/functions"
 
-[functions]
-  directory = "netlify/functions"   # Correct path to the functions directory
-
-  [[plugins]]
-  package = "@netlify/plugin-scheduled-functions"
-
-[[plugins.inputs.schedule]]
-  name = "sync-mobimatter-products"
-  function = "mobimatter"
-  schedule = "0 0 * * *"  # Every day at midnight UTC
+[[scheduled_functions]]
+  name = "mobimatter-cron"
+  schedule = "0 0 * * *"  # This cron expression means every day at midnight (UTC)
+  function = "mobimatter-cron"
