@@ -6,7 +6,7 @@ exports.handler = async function () {
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2023-10",
+    SHOPIFY_API_VERSION = "2023-10", // Keep it stable
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -38,13 +38,10 @@ exports.handler = async function () {
       const countries = (product.countries || []).map(c => `:flag-${c.toLowerCase()}:`).join(" ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
-
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
-      if (!title || !price) {
-        failed.push({ title: title || "(missing)", reason: "Missing title or price" });
-        continue;
-      }
+      const sku = product.uniqueId;
+      const image = product.providerLogo;
 
       const descriptionHtml = `
         <p><strong>Network:</strong> ${has5G}</p>
@@ -55,7 +52,8 @@ exports.handler = async function () {
         <p><strong>Validity:</strong> ${validity} days</p>
       `;
 
-      const mutation = `
+      // First mutation: create product
+      const productMutation = `
         mutation {
           productCreate(input: {
             title: "${title.replace(/"/g, '\\"')}",
@@ -63,17 +61,10 @@ exports.handler = async function () {
             vendor: "${product.providerName || "Mobimatter"}",
             productType: "eSIM",
             tags: ["${has5G}", "eSIM"],
-            variants: {
-              price: "${price}",
-              sku: "${product.uniqueId}"
-            },
-            images: {
-              src: "${product.providerLogo}"
-            }
+            images: [{ src: "${image}" }]
           }) {
             product {
               id
-              title
             }
             userErrors {
               field
@@ -83,7 +74,7 @@ exports.handler = async function () {
         }
       `;
 
-      const shopifyRes = await fetch(
+      const productRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
         {
           method: "POST",
@@ -91,21 +82,68 @@ exports.handler = async function () {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify({ query: mutation }),
+          body: JSON.stringify({ query: productMutation }),
         }
       );
 
-      const result = await shopifyRes.json();
-      const userErrors = result.data?.productCreate?.userErrors;
+      const productData = await productRes.json();
+      const productId = productData?.data?.productCreate?.product?.id;
+      const userErrors = productData?.data?.productCreate?.userErrors;
 
-      if (result.errors || (userErrors && userErrors.length > 0)) {
+      if (!productId || (userErrors && userErrors.length > 0)) {
         failed.push({
           title,
-          reason: result.errors?.[0]?.message || userErrors?.[0]?.message || "Unknown GraphQL error",
+          reason: userErrors?.[0]?.message || productData?.errors?.[0]?.message || "Failed to create product",
         });
-      } else {
-        created.push(title);
+        continue;
       }
+
+      // Second mutation: create variant
+      const variantMutation = `
+        mutation {
+          productVariantCreate(input: {
+            productId: "${productId}",
+            price: "${price}",
+            sku: "${sku}",
+            inventoryQuantity: 999999,
+            inventoryManagement: "SHOPIFY",
+            taxable: true
+          }) {
+            productVariant {
+              id
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const variantRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({ query: variantMutation }),
+        }
+      );
+
+      const variantData = await variantRes.json();
+      const variantErrors = variantData?.data?.productVariantCreate?.userErrors;
+
+      if (variantErrors && variantErrors.length > 0) {
+        failed.push({
+          title,
+          reason: variantErrors?.[0]?.message || "Failed to create variant",
+        });
+        continue;
+      }
+
+      created.push(title);
     }
 
     return {
