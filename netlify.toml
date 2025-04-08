@@ -1,13 +1,8 @@
 [build]
- 
   functions = "netlify/functions" # Define functions directory
+  publish = "public"  # Define where the site’s static files are published
 
 [[functions]]
   name = "mobimatter"
   path = "/.netlify/functions/mobimatter"
   timeout = 30
-
-# Optionally specify the publish directory if applicable
-[build]
-  publish = "."
-
