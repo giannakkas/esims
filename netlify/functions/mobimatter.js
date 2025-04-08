@@ -1,28 +1,30 @@
 const fetch = require("node-fetch");
 
-exports.handler = async function () {
+exports.handler = async () => {
   const {
-    MOBIMATTER_API_KEY,
-    MOBIMATTER_MERCHANT_ID,
+    SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+    SHOPIFY_API_VERSION = "2025-04"
   } = process.env;
 
   try {
-    const response = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
+    const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`, {
+      method: "GET",
       headers: {
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID,
-      },
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY
+      }
     });
 
     const data = await response.json();
     return {
       statusCode: response.status,
-      body: JSON.stringify(data, null, 2),
+      body: JSON.stringify(data, null, 2)
     };
-  } catch (error) {
+  } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
+      body: JSON.stringify({ error: err.message })
     };
   }
 };
