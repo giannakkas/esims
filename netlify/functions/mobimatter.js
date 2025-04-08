@@ -4,9 +4,9 @@ exports.handler = async function () {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
-    SHOPIFY_ADMIN_API_KEY,
-    SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-04",
+    SHOPIFY_ADMIN_API_KEY = "your-shopify-admin-api-key",
+    SHOPIFY_STORE_DOMAIN = "v861gm-fd.myshopify.com", // Updated Shopify store domain
+    SHOPIFY_API_VERSION = "2025-04", // Ensure correct Shopify API version
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -26,7 +26,7 @@ exports.handler = async function () {
     const { result: products } = await response.json();
     const created = [], failed = [];
 
-    for (const product of products.slice(0, 10)) { // limit to 10 for testing
+    for (const product of products.slice(0, 10)) { // Limit to 10 for testing
       const details = {};
       (product.productDetails || []).forEach(({ name, value }) => {
         details[name.trim()] = value;
