@@ -1,116 +1,110 @@
-const fetch = require("node-fetch");
+const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
 
-exports.handler = async function () {
-  const {
-    MOBIMATTER_API_KEY,
-    MOBIMATTER_MERCHANT_ID,
-    SHOPIFY_ADMIN_API_KEY,
-    SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-01",
-  } = process.env;
+try {
+  const response = await fetch(mobimatterUrl, {
+    headers: {
+      "api-key": MOBIMATTER_API_KEY,
+      merchantId: MOBIMATTER_MERCHANT_ID,
+    },
+  });
 
-  const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  if (!response.ok) {
+    throw new Error(`Mobimatter fetch failed: ${response.status}`);
+  }
 
-  try {
-    const response = await fetch(mobimatterUrl, {
-      headers: {
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID,
-      },
+  const { result: products } = await response.json();
+  const created = [], failed = [];
+
+  for (const product of products.slice(0, 10)) {
+    const details = {};
+    (product.productDetails || []).forEach(({ name, value }) => {
+      details[name.trim()] = value;
     });
 
-    if (!response.ok) {
-      throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    const has5G = details.FIVEG === "1" ? "5G" : "4G";
+    const speed = details.SPEED || "Unknown";
+    const topUp = details.TOPUP === "1" ? "Available" : "Not available";
+    const countries = (product.countries || []).map(
+      (code) => `:flag-${code.toLowerCase()}:`
+    ).join(" ");
+    const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
+    const validity = details.PLAN_VALIDITY || "?";
+
+    const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+    const price = product.retailPrice?.toFixed(2);
+    if (!title || !price) {
+      failed.push({ title: title || "(missing)", reason: "Missing title or price" });
+      continue;
     }
 
-    const { result: products } = await response.json();
-    const created = [], failed = [];
+    const body_html = `
+      <p><strong>Network:</strong> ${has5G}</p>
+      <p><strong>Speed:</strong> ${speed}</p>
+      <p><strong>Top-up:</strong> ${topUp}</p>
+      <p><strong>Countries:</strong> ${countries}</p>
+      <p><strong>Data:</strong> ${dataAmount}</p>
+      <p><strong>Validity:</strong> ${validity} days</p>
+    `;
 
-    for (const product of products.slice(0, 10)) {
-      const details = {};
-      (product.productDetails || []).forEach(({ name, value }) => {
-        details[name.trim()] = value;
-      });
-
-      const has5G = details.FIVEG === "1" ? "5G" : "4G";
-      const speed = details.SPEED || "Unknown";
-      const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).join(", ");
-      const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
-      const validity = details.PLAN_VALIDITY || "?";
-
-      const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-      const price = product.retailPrice?.toFixed(2);
-      if (!title || !price) {
-        failed.push({ title: title || "(missing)", reason: "Missing title or price" });
-        continue;
-      }
-
-      const body_html = `
-        <p><strong>Network:</strong> ${has5G}</p>
-        <p><strong>Speed:</strong> ${speed}</p>
-        <p><strong>Top-up:</strong> ${topUp}</p>
-        <p><strong>Countries:</strong> ${countries}</p>
-        <p><strong>Data:</strong> ${dataAmount}</p>
-        <p><strong>Validity:</strong> ${validity} days</p>
-      `;
-
-      const productPayload = {
-        product: {
-          title,
-          body_html,
-          vendor: product.providerName || "Mobimatter",
-          product_type: "eSIM",
-          tags: [has5G, "eSIM"],
-          status: "active",
-          published_scope: "global",
-          published_at: new Date().toISOString(),
-          variants: [
-            {
-              price,
-              sku: product.uniqueId,
-              inventory_quantity: 999999,
-              fulfillment_service: "manual",
-              inventory_management: null,
-              taxable: true,
-            },
-          ],
-          images: [
-            {
-              src: product.providerLogo,
-            },
-          ],
-        },
-      };
-
-      const shopifyRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+    const productPayload = {
+      product: {
+        title,
+        body_html,
+        vendor: product.providerName || "Mobimatter",
+        product_type: "eSIM",
+        tags: [has5G, "eSIM"],
+        status: "active",
+        published_scope: "web",
+        published_at: new Date().toISOString(),
+        variants: [
+          {
+            price,
+            sku: product.uniqueId,
+            inventory_quantity: 999999,
+            fulfillment_service: "manual",
+            inventory_management: null,
+            taxable: true,
           },
-          body: JSON.stringify(productPayload),
-        }
-      );
+        ],
+        images: [
+          {
+            src: product.providerLogo,
+          },
+        ],
+      },
+    };
 
-      if (!shopifyRes.ok) {
-        const errorText = await shopifyRes.text();
-        failed.push({ title, reason: errorText, status: shopifyRes.status });
-      } else {
-        created.push(title);
+    console.log("Sending to Shopify:", JSON.stringify(productPayload, null, 2));
+
+    const shopifyRes = await fetch(
+      `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+        },
+        body: JSON.stringify(productPayload),
       }
-    }
+    );
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed }),
-    };
-  } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
-    };
+    if (!shopifyRes.ok) {
+      const errorText = await shopifyRes.text();
+      console.error("Shopify error:", errorText);
+      failed.push({ title, reason: errorText, status: shopifyRes.status });
+    } else {
+      created.push(title);
+    }
   }
-};
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed }),
+  };
+} catch (err) {
+  console.error("Fatal error:", err.message);
+  return {
+    statusCode: 500,
+    body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
+  };
+}
