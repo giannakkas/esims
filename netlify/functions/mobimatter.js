@@ -8,7 +8,7 @@ const CONFIG = {
   SHOPIFY_API_VERSION: process.env.SHOPIFY_API_VERSION || "2025-04"
 };
 
-// Updated GraphQL mutation without images in initial creation
+// GraphQL mutations
 const SHOPIFY_MUTATION = `
   mutation productCreate($input: ProductInput!) {
     productCreate(input: $input) {
@@ -25,7 +25,6 @@ const SHOPIFY_MUTATION = `
   }
 `;
 
-// Separate mutation for image upload
 const SHOPIFY_IMAGE_MUTATION = `
   mutation productImageCreate($productId: ID!, $image: ImageInput!) {
     productImageCreate(productId: $productId, image: $image) {
@@ -46,6 +45,7 @@ const transformProduct = (product) => {
     details[name.trim()] = value;
   });
 
+  // Only include fields that exist in ProductInput!
   return {
     title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
     descriptionHtml: `
@@ -62,13 +62,12 @@ const transformProduct = (product) => {
       details.FIVEG === "1" ? "5G" : "4G",
       "eSIM",
       `data-${details.PLAN_DATA_LIMIT || 'unknown'}${details.PLAN_DATA_UNIT || 'GB'}`
-    ],
-    // REMOVED images from initial creation
-    providerLogo: product.providerLogo // Will be added later
+    ]
+    // REMOVED ALL non-standard fields
   };
 };
 
-// Helper function to add images after product creation
+// Helper function to add images
 const addProductImage = async (productId, imageUrl) => {
   if (!imageUrl) return null;
 
@@ -99,7 +98,8 @@ exports.handler = async (event) => {
     processed: 0,
     created: [],
     errors: [],
-    skipped: false
+    skipped: false,
+    imageResults: []
   };
 
   try {
@@ -125,6 +125,16 @@ exports.handler = async (event) => {
     if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
     const { result: products } = await mobiResponse.json();
 
+    // Store image URLs separately
+    const productImages = {};
+    products.forEach(product => {
+      const details = {};
+      (product.productDetails || []).forEach(({ name, value }) => {
+        details[name.trim()] = value;
+      });
+      productImages[details.PLAN_TITLE || product.productFamilyName] = product.providerLogo;
+    });
+
     // 2. Process products
     for (const product of products) {
       if (getRemainingTime() < 1000) {
@@ -135,7 +145,7 @@ exports.handler = async (event) => {
       try {
         const productData = transformProduct(product);
         
-        // 3. Create product (without images)
+        // 3. Create product
         const createResponse = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${CONFIG.SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -161,13 +171,19 @@ exports.handler = async (event) => {
         }
 
         const productId = createData.data?.productCreate?.product?.id?.split('/').pop();
+        const productTitle = productData.title;
         
         // 4. Add image separately if exists
-        if (productData.providerLogo && productId) {
-          await addProductImage(productId, productData.providerLogo);
+        if (productImages[productTitle] && productId) {
+          const imageResult = await addProductImage(productId, productImages[productTitle]);
+          results.imageResults.push({
+            product: productTitle,
+            imageAdded: !!imageResult?.data?.productImageCreate?.productImage?.id,
+            errors: imageResult?.data?.productImageCreate?.userErrors || []
+          });
         }
 
-        results.created.push(productData.title);
+        results.created.push(productTitle);
       } catch (err) {
         results.errors.push({
           product: product.productFamilyName || "Unnamed Product",
@@ -178,7 +194,6 @@ exports.handler = async (event) => {
       results.processed++;
     }
 
-    // Return results
     return {
       statusCode: 200,
       headers: {
@@ -191,14 +206,16 @@ exports.handler = async (event) => {
           totalProcessed: offset + results.processed,
           created: results.created.length,
           errors: results.errors.length,
-          skipped: results.skipped
+          skipped: results.skipped,
+          imagesAdded: results.imageResults.filter(r => r.imageAdded).length
         },
         ...(results.processed === CONFIG.PRODUCTS_PER_RUN && !results.skipped && {
           nextPage: `${event.path}?offset=${offset + results.processed}`
         }),
         details: {
           created: results.created,
-          errors: results.errors
+          errors: results.errors,
+          imageResults: results.imageResults
         }
       })
     };
