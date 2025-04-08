@@ -16,7 +16,6 @@ const COUNTRY_FLAGS = {
   US: '🇺🇸', GB: '🇬🇧', FR: '🇫🇷', DE: '🇩🇪', IT: '🇮🇹',
   ES: '🇪🇸', JP: '🇯🇵', KR: '🇰🇷', CN: '🇨🇳', IN: '🇮🇳',
   BR: '🇧🇷', CA: '🇨🇦', AU: '🇦🇺', NZ: '🇳🇿', SG: '🇸🇬',
-  // Add more country codes as needed
   ME: '🇲🇪', RS: '🇷🇸', VN: '🇻🇳', BG: '🇧🇬', ID: '🇮🇩'
 };
 
@@ -94,7 +93,10 @@ exports.handler = async (event) => {
       try {
         const details = getProductDetails(product);
         
-        // 3. Create Shopify product with enhanced description
+        // 3. Ensure price is available
+        const price = product.retailPrice || 'Not Available';
+
+        // 4. Create Shopify product with enhanced description
         const createResponse = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION || '2025-04'}/graphql.json`,
           {
@@ -121,6 +123,7 @@ exports.handler = async (event) => {
                     `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
                     ...(product.countries || []).map(c => `country-${c}`)
                   ],
+                  price: price,
                   status: "ACTIVE"
                 }
               }
