@@ -1,5 +1,14 @@
 const fetch = require("node-fetch");
 
+// Example of flag URLs for countries (you can get a larger mapping)
+const countryFlags = {
+  "VN": "https://flagcdn.com/w320/vn.png",
+  "US": "https://flagcdn.com/w320/us.png",
+  "FR": "https://flagcdn.com/w320/fr.png",
+  "DE": "https://flagcdn.com/w320/de.png",
+  // Add other countries as needed
+};
+
 exports.handler = async function () {
   const {
     MOBIMATTER_API_KEY,
@@ -10,7 +19,7 @@ exports.handler = async function () {
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  
+
   try {
     const response = await fetch(mobimatterUrl, {
       headers: {
@@ -35,7 +44,13 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).join(", ");
+      const countries = (product.countries || [])
+        .map(countryCode => {
+          const flagUrl = countryFlags[countryCode] || ""; // Get the flag URL
+          const countryName = countryCode; // You can replace this with a map for country names
+          return flagUrl ? `<img src="${flagUrl}" alt="${countryName}" style="width: 20px; margin-right: 5px;"> ${countryName}` : countryName;
+        })
+        .join(", ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
