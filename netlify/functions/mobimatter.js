@@ -6,7 +6,7 @@ exports.handler = async function () {
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-04",
+    SHOPIFY_API_VERSION = "2025-01",
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -35,7 +35,7 @@ exports.handler = async function () {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).map(code => `:flag-${code.toLowerCase()}:`).join(" ");
+      const countries = (product.countries || []).join(", ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
 
@@ -46,64 +46,59 @@ exports.handler = async function () {
         continue;
       }
 
-      const body_html = `
-        <p><strong>Network:</strong> ${has5G}</p>
-        <p><strong>Speed:</strong> ${speed}</p>
-        <p><strong>Top-up:</strong> ${topUp}</p>
-        <p><strong>Countries:</strong> ${countries}</p>
-        <p><strong>Data:</strong> ${dataAmount}</p>
-        <p><strong>Validity:</strong> ${validity} days</p>
+      const description = `Network: ${has5G}\nSpeed: ${speed}\nTop-up: ${topUp}\nCountries: ${countries}\nData: ${dataAmount}\nValidity: ${validity} days`;
+
+      const mutation = `
+        mutation {
+          productCreate(input: {
+            title: "${title.replace(/"/g, '\\"')}",
+            bodyHtml: "<pre>${description.replace(/"/g, '\\"')}</pre>",
+            vendor: "${product.providerName || "Mobimatter"}",
+            productType: "eSIM",
+            tags: ["${has5G}", "eSIM"],
+            variants: [
+              {
+                price: "${price}",
+                sku: "${product.uniqueId}",
+                inventoryQuantity: 999999,
+                fulfillmentService: "manual",
+                inventoryManagement: null,
+                taxable: true
+              }
+            ]
+          }) {
+            product {
+              id
+              title
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
       `;
 
-      const productPayload = {
-        product: {
-          title,
-          body_html,
-          vendor: product.providerName || "Mobimatter",
-          product_type: "eSIM",
-          tags: [has5G, "eSIM"],
-          status: "active",
-          published_scope: "web",
-          published_at: new Date().toISOString(),
-          variants: [
-            {
-              price,
-              sku: product.uniqueId,
-              inventory_quantity: 999999,
-              fulfillment_service: "manual",
-              inventory_management: null,
-              taxable: true,
-            },
-          ],
-          images: [
-            {
-              src: product.providerLogo,
-            },
-          ],
-        },
-      };
-
-      console.log("Sending to Shopify:", JSON.stringify(productPayload, null, 2));
-
       const shopifyRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json`,
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify(productPayload),
+          body: JSON.stringify({ query: mutation }),
         }
       );
 
       const shopifyResult = await shopifyRes.json();
-
-      if (!shopifyRes.ok) {
-        failed.push({ title, reason: shopifyResult.errors || shopifyResult, status: shopifyRes.status });
+      if (shopifyResult.data?.productCreate?.product?.title) {
+        created.push(shopifyResult.data.productCreate.product.title);
       } else {
-        created.push(title);
-        console.log("Shopify created:", shopifyResult);
+        failed.push({
+          title,
+          reason: JSON.stringify(shopifyResult.errors || shopifyResult.data?.productCreate?.userErrors)
+        });
       }
     }
 
