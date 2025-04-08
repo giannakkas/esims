@@ -1,26 +1,26 @@
 [build]
-  command = "npm run build"  # If using a frontend framework (e.g., React)
-  publish = "dist"           # Your frontend build folder (adjust as needed)
-  functions = "functions"    # Netlify Functions directory
+  command = "npm run build"  # Only if you have a frontend build step
+  publish = "dist"          # Your frontend build directory (adjust if needed)
+  functions = "functions"   # Points to your functions folder
 
 [functions]
-  # Set Node.js version (recommended for Shopify API compatibility)
-  node_bundler = "esbuild"  
-  # Timeout extended for API calls (max 10s for basic, 15s for background)
-  timeout = 10  # Seconds (max for synchronous functions)
+  # Timeout settings (now in object format)
+  [functions.timeout]
+    # Default timeout for all functions (max 10s for standard, 15s for background)
+    default = 10  # Seconds
 
-# Environment variables (reference only - actual vars are set in Netlify UI)
+# Environment variables (reference only - set real values in Netlify UI)
 [build.environment]
   NODE_VERSION = "18"  # Shopify requires Node 16+
 
-# Redirects (optional: for clean URLs or SPA routing)
+# Optional: Clean URL redirects for API endpoints
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
   force = true
 
-# Security headers (critical for Shopify webhooks)
+# Security headers (recommended)
 [[headers]]
   for = "/*"
   [headers.values]
