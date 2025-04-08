@@ -1,7 +1,8 @@
 [build]
-  functions = "netlify/functions"
+  functions = "netlify-functions"
 
 [[scheduled_functions]]
-  name = "mobimatter-cron"
-  schedule = "0 0 * * *"  # This cron expression means every day at midnight (UTC)
-  function = "mobimatter-cron"
+name = "mobimatter-sync"
+schedule = "0 0 * * *"  # Run every day at midnight UTC
+function = "mobimatter"
+timeout = 900 # Max timeout of 900 seconds (15 minutes)
