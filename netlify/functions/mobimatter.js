@@ -6,7 +6,7 @@ exports.handler = async function () {
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2023-10", // Keep it stable
+    SHOPIFY_API_VERSION = "2023-10", // Known stable
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
@@ -41,7 +41,6 @@ exports.handler = async function () {
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
       const sku = product.uniqueId;
-      const image = product.providerLogo;
 
       const descriptionHtml = `
         <p><strong>Network:</strong> ${has5G}</p>
@@ -52,7 +51,7 @@ exports.handler = async function () {
         <p><strong>Validity:</strong> ${validity} days</p>
       `;
 
-      // First mutation: create product
+      // Create product (no images)
       const productMutation = `
         mutation {
           productCreate(input: {
@@ -60,8 +59,7 @@ exports.handler = async function () {
             descriptionHtml: """${descriptionHtml.replace(/"""/g, '\\"\\"\\"')}""",
             vendor: "${product.providerName || "Mobimatter"}",
             productType: "eSIM",
-            tags: ["${has5G}", "eSIM"],
-            images: [{ src: "${image}" }]
+            tags: ["${has5G}", "eSIM"]
           }) {
             product {
               id
@@ -98,7 +96,7 @@ exports.handler = async function () {
         continue;
       }
 
-      // Second mutation: create variant
+      // Add variant
       const variantMutation = `
         mutation {
           productVariantCreate(input: {
