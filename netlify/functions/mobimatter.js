@@ -133,6 +133,8 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
+
+        // Log full error details for debugging
         if (createData.errors) {
           console.error("Shopify Error:", createData.errors);
           throw new Error(createData.errors[0].message);
