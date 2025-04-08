@@ -133,7 +133,10 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
-        if (createData.errors) throw new Error(createData.errors[0].message);
+        if (createData.errors) {
+          console.error("Shopify Error:", createData.errors);
+          throw new Error(createData.errors[0].message);
+        }
 
         results.created.push({
           title: createData.data.productCreate.product.title,
@@ -141,6 +144,7 @@ exports.handler = async (event) => {
         });
         results.processed++;
       } catch (err) {
+        console.error(`Error processing product: ${product.productFamilyName || 'Unnamed'}`, err);
         results.errors.push({
           product: product.productFamilyName || "Unnamed",
           error: err.message
@@ -165,6 +169,7 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
+    console.error("Processing failed:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({
