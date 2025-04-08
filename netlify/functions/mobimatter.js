@@ -10,7 +10,7 @@ exports.handler = async function () {
   } = process.env;
 
   const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
-
+  
   try {
     const response = await fetch(mobimatterUrl, {
       headers: {
@@ -26,7 +26,7 @@ exports.handler = async function () {
     const { result: products } = await response.json();
     const created = [], failed = [];
 
-    for (const product of products.slice(0, 100)) { // Syncing 100 products for testing
+    for (const product of products.slice(0, 100)) { // limit to 100 for testing
       const details = {};
       (product.productDetails || []).forEach(({ name, value }) => {
         details[name.trim()] = value;
