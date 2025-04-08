@@ -1,16 +1,14 @@
-// Use dynamic import for ESM compatibility
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-// Configuration - Adjust these based on your needs
+// Configuration
 const CONFIG = {
-  SAFETY_TIMEOUT: 9000,         // Stop 1s before Netlify's 10s timeout (in ms)
-  PRODUCTS_PER_RUN: 5,          // Start small, increase gradually
+  SAFETY_TIMEOUT: 9000,
+  PRODUCTS_PER_RUN: 5,
   MOBIMATTER_API_URL: "https://api.mobimatter.com/mobimatter/api/v2/products",
-  SHOPIFY_API_VERSION: process.env.SHOPIFY_API_VERSION || "2025-04",
-  SHOPIFY_TIMEOUT: 3000         // 3s timeout per Shopify request
+  SHOPIFY_API_VERSION: process.env.SHOPIFY_API_VERSION || "2025-04"
 };
 
-// Minimal GraphQL mutation for Shopify
+// Updated GraphQL mutation without images in initial creation
 const SHOPIFY_MUTATION = `
   mutation productCreate($input: ProductInput!) {
     productCreate(input: $input) {
@@ -27,7 +25,21 @@ const SHOPIFY_MUTATION = `
   }
 `;
 
-// Transform MobiMatter product to Shopify format
+// Separate mutation for image upload
+const SHOPIFY_IMAGE_MUTATION = `
+  mutation productImageCreate($productId: ID!, $image: ImageInput!) {
+    productImageCreate(productId: $productId, image: $image) {
+      productImage {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
 const transformProduct = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -51,10 +63,34 @@ const transformProduct = (product) => {
       "eSIM",
       `data-${details.PLAN_DATA_LIMIT || 'unknown'}${details.PLAN_DATA_UNIT || 'GB'}`
     ],
-    ...(product.providerLogo && { 
-      images: [{ src: product.providerLogo }] 
-    })
+    // REMOVED images from initial creation
+    providerLogo: product.providerLogo // Will be added later
   };
+};
+
+// Helper function to add images after product creation
+const addProductImage = async (productId, imageUrl) => {
+  if (!imageUrl) return null;
+
+  const response = await fetch(
+    `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${CONFIG.SHOPIFY_API_VERSION}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_KEY,
+      },
+      body: JSON.stringify({
+        query: SHOPIFY_IMAGE_MUTATION,
+        variables: {
+          productId: `gid://shopify/Product/${productId}`,
+          image: { src: imageUrl }
+        }
+      })
+    }
+  );
+
+  return response.json();
 };
 
 exports.handler = async (event) => {
@@ -67,15 +103,14 @@ exports.handler = async (event) => {
   };
 
   try {
-    // Calculate remaining time
     const getRemainingTime = () => CONFIG.SAFETY_TIMEOUT - (Date.now() - startTime);
 
-    // 1. Fetch products with pagination
+    // 1. Fetch products
     const offset = event.queryStringParameters?.offset || 0;
     const apiUrl = `${CONFIG.MOBIMATTER_API_URL}?limit=${CONFIG.PRODUCTS_PER_RUN}&offset=${offset}`;
     
     if (getRemainingTime() < 2000) {
-      throw new Error("Insufficient time remaining for API call");
+      throw new Error("Insufficient time remaining");
     }
 
     const mobiResponse = await fetch(apiUrl, {
@@ -84,16 +119,13 @@ exports.handler = async (event) => {
         "merchantId": process.env.MOBIMATTER_MERCHANT_ID,
         "Ocp-Apim-Subscription-Key": process.env.MOBIMATTER_SUBSCRIPTION_KEY
       },
-      timeout: 2000 // 2s timeout for MobiMatter API
+      timeout: 2000
     });
 
-    if (!mobiResponse.ok) {
-      throw new Error(`MobiMatter API: ${mobiResponse.status}`);
-    }
-
+    if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
     const { result: products } = await mobiResponse.json();
 
-    // 2. Process products with time monitoring
+    // 2. Process products
     for (const product of products) {
       if (getRemainingTime() < 1000) {
         results.skipped = true;
@@ -103,16 +135,8 @@ exports.handler = async (event) => {
       try {
         const productData = transformProduct(product);
         
-        // Validate required fields
-        if (!productData.title) {
-          throw new Error("Missing product title");
-        }
-
-        // Create Shopify product
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), CONFIG.SHOPIFY_TIMEOUT);
-
-        const shopifyResponse = await fetch(
+        // 3. Create product (without images)
+        const createResponse = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${CONFIG.SHOPIFY_API_VERSION}/graphql.json`,
           {
             method: "POST",
@@ -123,37 +147,38 @@ exports.handler = async (event) => {
             body: JSON.stringify({
               query: SHOPIFY_MUTATION,
               variables: { input: productData }
-            }),
-            signal: controller.signal
+            })
           }
         );
 
-        clearTimeout(timeout);
-        const responseData = await shopifyResponse.json();
-
-        if (responseData.errors || responseData.data?.productCreate?.userErrors?.length) {
+        const createData = await createResponse.json();
+        
+        if (createData.errors || createData.data?.productCreate?.userErrors?.length) {
           throw new Error(
-            responseData.errors?.[0]?.message || 
-            responseData.data?.productCreate?.userErrors?.[0]?.message ||
-            "Unknown Shopify error"
+            createData.errors?.[0]?.message || 
+            createData.data?.productCreate?.userErrors?.[0]?.message
           );
+        }
+
+        const productId = createData.data?.productCreate?.product?.id?.split('/').pop();
+        
+        // 4. Add image separately if exists
+        if (productData.providerLogo && productId) {
+          await addProductImage(productId, productData.providerLogo);
         }
 
         results.created.push(productData.title);
       } catch (err) {
         results.errors.push({
           product: product.productFamilyName || "Unnamed Product",
-          error: err.message.replace(/\n/g, ' ') // Remove newlines for logs
+          error: err.message.replace(/\n/g, ' ')
         });
       }
 
       results.processed++;
     }
 
-    // 3. Prepare pagination for next run
-    const nextOffset = offset + results.processed;
-    const hasMore = results.processed === CONFIG.PRODUCTS_PER_RUN && !results.skipped;
-
+    // Return results
     return {
       statusCode: 200,
       headers: {
@@ -163,13 +188,13 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
         stats: {
-          totalProcessed: nextOffset,
+          totalProcessed: offset + results.processed,
           created: results.created.length,
           errors: results.errors.length,
           skipped: results.skipped
         },
-        ...(hasMore && {
-          nextPage: `${event.path}?offset=${nextOffset}`
+        ...(results.processed === CONFIG.PRODUCTS_PER_RUN && !results.skipped && {
+          nextPage: `${event.path}?offset=${offset + results.processed}`
         }),
         details: {
           created: results.created,
@@ -189,7 +214,6 @@ exports.handler = async (event) => {
         error: "Function execution failed",
         message: err.message,
         executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
-        lastProcessedOffset: event.queryStringParameters?.offset || 0,
         failedBatch: results
       })
     };
