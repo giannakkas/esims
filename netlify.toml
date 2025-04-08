@@ -1,8 +1,29 @@
 [build]
-  publish = "public"  # Set your publish directory, replace if different
-  functions = "netlify/functions"  # Function directory
+  command = "npm run build"  # If using a frontend framework (e.g., React)
+  publish = "dist"           # Your frontend build folder (adjust as needed)
+  functions = "functions"    # Netlify Functions directory
 
-[[functions]]
-  name = "mobimatter"
-  path = "/.netlify/functions/mobimatter"
-  timeout = 30
+[functions]
+  # Set Node.js version (recommended for Shopify API compatibility)
+  node_bundler = "esbuild"  
+  # Timeout extended for API calls (max 10s for basic, 15s for background)
+  timeout = 10  # Seconds (max for synchronous functions)
+
+# Environment variables (reference only - actual vars are set in Netlify UI)
+[build.environment]
+  NODE_VERSION = "18"  # Shopify requires Node 16+
+
+# Redirects (optional: for clean URLs or SPA routing)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# Security headers (critical for Shopify webhooks)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "default-src 'self'"
+    Strict-Transport-Security = "max-age=31536000"
