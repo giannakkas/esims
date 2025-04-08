@@ -2,6 +2,6 @@
   functions = "netlify/functions"
   publish = "."
 
-[[functions]]
-  function = "mobimatter"
-  timeout = 26  # Increase timeout to 26 seconds
+[functions]
+  # Set timeout for the mobimatter function to 26 seconds
+  timeout = 26
