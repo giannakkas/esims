@@ -1,151 +1,119 @@
 const axios = require('axios');
 
 exports.handler = async (event, context) => {
-  // ======================
-  // 1. Configure Response Headers
-  // ======================
+  // Configure API constants
+  const API_BASE_URL = 'https://api.mobimatter.com/mobimatter/api/v2/public';
   const headers = {
     'Content-Type': 'application/json',
+    'X-API-KEY': process.env.MOBIMATTER_API_KEY,
+    'merchantId': process.env.MOBIMATTER_MERCHANT_ID
+  };
+
+  // Set up CORS headers
+  const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
   };
 
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' };
-  }
-
-  // ======================
-  // 2. Debugging: Log Incoming Event
-  // ======================
-  console.log('Received event:', JSON.stringify({
-    method: event.httpMethod,
-    path: event.path,
-    body: event.body,
-    query: event.queryStringParameters
-  }, null, 2));
-
-  // ======================
-  // 3. Validate HTTP Method
-  // ======================
-  if (event.httpMethod !== 'POST') {
     return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ 
-        error: 'Method Not Allowed', 
-        message: 'Only POST requests are accepted' 
-      })
+      statusCode: 204,
+      headers: corsHeaders,
+      body: ''
     };
   }
 
-  // ======================
-  // 4. Parse and Validate Input
-  // ======================
-  let input;
   try {
-    input = JSON.parse(event.body || '{}');
-    
-    // Auto-detect Shopify webhook format
-    if (input.email && input.line_items) {
-      input = {
-        planId: input.line_items[0]?.sku || `shopify_${input.line_items[0]?.variant_id}`,
-        customerEmail: input.email,
-        orderId: input.id,
-        isShopify: true
-      };
-    }
-
-    // Validate required fields
-    if (!input.planId || !input.customerEmail) {
+    // =====================================
+    // 1. Handle GET Requests (Product Listing)
+    // =====================================
+    if (event.httpMethod === 'GET') {
+      const response = await axios.get(`${API_BASE_URL}/products`, { headers });
+      
       return {
-        statusCode: 400,
-        headers,
+        statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Missing required fields',
-          required: { 
-            planId: 'eSIM plan ID (e.g., "global_10gb")', 
-            customerEmail: 'user@example.com' 
-          },
-          received: input
+          success: true,
+          products: response.data
         })
       };
     }
-  } catch (err) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({
-        error: 'Invalid JSON format',
-        details: err.message,
-        example: {
-          planId: "test_plan",
-          customerEmail: "user@example.com",
-          orderId: "optional_shopify_order_id"
-        }
-      })
-    };
-  }
 
-  // ======================
-  // 5. Call MobiMatter API
-  // ======================
-  try {
-    console.log('Calling MobiMatter API with:', JSON.stringify({
-      planId: input.planId,
-      email: input.customerEmail
-    }));
+    // =====================================
+    // 2. Handle POST Requests (Order Creation)
+    // =====================================
+    if (event.httpMethod === 'POST') {
+      // Parse and validate input
+      const input = JSON.parse(event.body || '{}');
+      
+      if (!input.planId || !input.customerEmail) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            error: 'Missing required fields',
+            required: ['planId', 'customerEmail'],
+            received: input
+          })
+        };
+      }
 
-    const response = await axios.post(
-      'https://api.mobimatter.com/v2/order',
-      {
-        merchantId: process.env.MOBIMATTER_MERCHANT_ID,
+      // Create order payload
+      const orderPayload = {
         planId: input.planId,
-        customerEmail: input.customerEmail
-      },
-      {
-        headers: {
-          'X-API-Key': process.env.MOBIMATTER_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        timeout: 8000 // 8-second timeout
-      }
-    );
+        customerEmail: input.customerEmail,
+        // Add additional optional fields
+        ...(input.orderId && { externalReference: input.orderId }),
+        ...(input.countryCode && { countryCode: input.countryCode })
+      };
 
-    console.log('MobiMatter response:', JSON.stringify(response.data));
+      // Call MobiMatter API
+      const response = await axios.post(
+        `${API_BASE_URL}/order`,
+        orderPayload,
+        { headers }
+      );
 
-    // ======================
-    // 6. Update Shopify Order (if applicable)
-    // ======================
-    if (input.orderId && process.env.SHOPIFY_ADMIN_API_KEY) {
-      try {
-        await axios.post(
-          `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION}/orders/${input.orderId}/notes.json`,
-          {
-            note: `eSIM Activated: ${response.data.activationLink || 'Check email for details'}`
-          },
-          {
-            headers: {
-              'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_KEY
+      // Optional: Update Shopify order if orderId exists
+      if (input.orderId && process.env.SHOPIFY_ADMIN_API_KEY) {
+        try {
+          await axios.post(
+            `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION}/orders/${input.orderId}/notes.json`,
+            {
+              note: `eSIM Activated: ${response.data.activationLink || response.data.orderId}`
+            },
+            {
+              headers: {
+                'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_KEY,
+                'Content-Type': 'application/json'
+              }
             }
-          }
-        );
-      } catch (shopifyError) {
-        console.error('Shopify note update failed (non-critical):', shopifyError.message);
+          );
+        } catch (shopifyError) {
+          console.error('Non-critical Shopify update error:', shopifyError.message);
+        }
       }
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          order: response.data
+        })
+      };
     }
 
-    // ======================
-    // 7. Return Success
-    // ======================
+    // Handle unsupported methods
     return {
-      statusCode: 200,
-      headers,
+      statusCode: 405,
+      headers: corsHeaders,
       body: JSON.stringify({
-        success: true,
-        activationLink: response.data.activationLink,
-        qrCode: response.data.qrCodeUrl,
-        orderId: input.orderId || null
+        error: 'Method Not Allowed',
+        allowedMethods: ['GET', 'POST']
       })
     };
 
@@ -153,17 +121,18 @@ exports.handler = async (event, context) => {
     // Detailed error logging
     console.error('API Error:', {
       message: error.message,
+      stack: error.stack,
       response: error.response?.data,
-      stack: error.stack
+      request: error.config?.data
     });
 
     return {
       statusCode: error.response?.status || 500,
-      headers,
+      headers: corsHeaders,
       body: JSON.stringify({
-        error: 'eSIM activation failed',
-        details: error.response?.data || error.message,
-        requestData: input
+        error: 'API Request Failed',
+        message: error.message,
+        ...(error.response?.data && { details: error.response.data })
       })
     };
   }
