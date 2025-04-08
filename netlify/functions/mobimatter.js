@@ -1,4 +1,4 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 // Configuration
 const CONFIG = {
@@ -93,10 +93,7 @@ exports.handler = async (event) => {
       try {
         const details = getProductDetails(product);
         
-        // 3. Ensure price is available and send it in the variants array
-        const price = product.retailPrice || 'Not Available';
-
-        // 4. Create Shopify product with enhanced description
+        // 3. Create Shopify product with enhanced description
         const createResponse = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION || '2025-04'}/graphql.json`,
           {
@@ -123,22 +120,22 @@ exports.handler = async (event) => {
                     `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
                     ...(product.countries || []).map(c => `country-${c}`)
                   ],
+                  status: "ACTIVE",
                   variants: [
                     {
-                      price: price,
+                      price: product.retailPrice || "Not Available",
                       sku: product.uniqueId,
                       inventory_quantity: 999999,
                       fulfillment_service: "manual",
                       inventory_management: null,
-                      taxable: true
+                      taxable: true,
                     }
                   ],
                   images: [
                     {
-                      src: product.providerLogo
+                      src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
                     }
-                  ],
-                  status: "ACTIVE"
+                  ]
                 }
               }
             }),
@@ -147,12 +144,7 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
-
-        // Log full error details for debugging
-        if (createData.errors) {
-          console.error("Shopify Error:", createData.errors);
-          throw new Error(createData.errors[0].message);
-        }
+        if (createData.errors) throw new Error(createData.errors[0].message);
 
         results.created.push({
           title: createData.data.productCreate.product.title,
@@ -160,7 +152,6 @@ exports.handler = async (event) => {
         });
         results.processed++;
       } catch (err) {
-        console.error(`Error processing product: ${product.productFamilyName || 'Unnamed'}`, err);
         results.errors.push({
           product: product.productFamilyName || "Unnamed",
           error: err.message
@@ -171,7 +162,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
+        executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
         stats: {
           totalProducts: products.length,
           processed: results.processed,
@@ -185,13 +176,12 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    console.error("Processing failed:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({
         error: "Processing failed",
         message: err.message,
-        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`
+        executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`
       })
     };
   }
