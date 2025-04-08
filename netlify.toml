@@ -9,5 +9,5 @@
 
 # Optionally specify the publish directory if applicable
 [build]
-  publish = "public"
+  publish = "."
 
