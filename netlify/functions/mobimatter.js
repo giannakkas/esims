@@ -26,21 +26,6 @@ exports.handler = async function () {
     const { result: products } = await response.json();
     const created = [], failed = [];
 
-    const mutation = `
-      mutation productCreate($input: ProductInput!) {
-        productCreate(input: $input) {
-          product {
-            id
-            title
-          }
-          userErrors {
-            field
-            message
-          }
-        }
-      }
-    `;
-
     for (const product of products.slice(0, 10)) {
       const details = {};
       (product.productDetails || []).forEach(({ name, value }) => {
@@ -56,12 +41,13 @@ exports.handler = async function () {
 
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
+
       if (!title || !price) {
         failed.push({ title: title || "(missing)", reason: "Missing title or price" });
         continue;
       }
 
-      const bodyHtml = `
+      const body_html = `
         <p><strong>Network:</strong> ${has5G}</p>
         <p><strong>Speed:</strong> ${speed}</p>
         <p><strong>Top-up:</strong> ${topUp}</p>
@@ -70,27 +56,36 @@ exports.handler = async function () {
         <p><strong>Validity:</strong> ${validity} days</p>
       `;
 
-      const variables = {
-        input: {
-          title,
-          bodyHtml,
-          vendor: product.providerName || "Mobimatter",
-          productType: "eSIM",
-          tags: [has5G, "eSIM"],
-          variants: [
-            {
-              price,
-              sku: product.uniqueId,
+      const mutation = `
+        mutation {
+          productCreate(input: {
+            title: "${title.replace(/"/g, '\\"')}",
+            bodyHtml: """${body_html.replace(/"/g, '\\"')}""",
+            vendor: "${(product.providerName || "Mobimatter").replace(/"/g, '\\"')}",
+            productType: "eSIM",
+            tags: ["${has5G}", "eSIM"],
+            variants: [{
+              price: "${price}",
+              sku: "${product.uniqueId}",
               inventoryQuantity: 999999,
               fulfillmentService: "manual",
-              inventoryManagement: null,
               taxable: true
+            }],
+            images: [{
+              src: "${product.providerLogo}"
+            }]
+          }) {
+            product {
+              title
+              id
             }
-          ],
-          images: product.providerLogo ? [{ src: product.providerLogo }] : [],
-          status: "ACTIVE",
+            userErrors {
+              field
+              message
+            }
+          }
         }
-      };
+      `;
 
       const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
@@ -100,21 +95,29 @@ exports.handler = async function () {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify({ query: mutation, variables }),
+          body: JSON.stringify({ query: mutation }),
         }
       );
 
       const json = await shopifyRes.json();
 
-      const errorMessage = json.errors?.[0]?.message;
-      const userErrors = json.data?.productCreate?.userErrors;
-
-      if (json.data?.productCreate?.product?.title) {
+      if (json.errors) {
+        failed.push({
+          title,
+          reason: `GraphQL Error: ${JSON.stringify(json.errors)}`
+        });
+      } else if (json.data?.productCreate?.userErrors?.length) {
+        const messages = json.data.productCreate.userErrors.map(e => e.message).join("; ");
+        failed.push({
+          title,
+          reason: `User Error(s): ${messages}`
+        });
+      } else if (json.data?.productCreate?.product?.title) {
         created.push(json.data.productCreate.product.title);
       } else {
         failed.push({
           title,
-          reason: errorMessage || JSON.stringify(userErrors)
+          reason: "Unknown error – no product created, no errors returned"
         });
       }
     }
