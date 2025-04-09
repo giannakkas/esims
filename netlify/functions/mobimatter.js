@@ -1,4 +1,4 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // Configuration
 const CONFIG = {
@@ -16,6 +16,7 @@ const COUNTRY_FLAGS = {
   US: '🇺🇸', GB: '🇬🇧', FR: '🇫🇷', DE: '🇩🇪', IT: '🇮🇹',
   ES: '🇪🇸', JP: '🇯🇵', KR: '🇰🇷', CN: '🇨🇳', IN: '🇮🇳',
   BR: '🇧🇷', CA: '🇨🇦', AU: '🇦🇺', NZ: '🇳🇿', SG: '🇸🇬',
+  // Add more country codes as needed
   ME: '🇲🇪', RS: '🇷🇸', VN: '🇻🇳', BG: '🇧🇬', ID: '🇮🇩'
 };
 
@@ -83,8 +84,6 @@ exports.handler = async (event) => {
     if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
     const { result: products } = await mobiResponse.json();
 
-    console.log(`Fetched ${products.length} products.`); // Log fetched products
-
     // 2. Process products with time checks
     for (const product of products.slice(0, CONFIG.PRODUCTS_PER_RUN)) {
       if (Date.now() - startTime > CONFIG.SAFETY_TIMEOUT) {
@@ -94,7 +93,6 @@ exports.handler = async (event) => {
 
       try {
         const details = getProductDetails(product);
-        console.log(`Processing product: ${details.PLAN_TITLE || product.productFamilyName}`); // Log product being processed
         
         // 3. Create Shopify product with enhanced description
         const createResponse = await fetch(
@@ -126,7 +124,7 @@ exports.handler = async (event) => {
                   status: "ACTIVE",
                   variants: [
                     {
-                      price: product.retailPrice || "Not Available",
+                      price: product.retailPrice || "Not Available", // Ensure price is available
                       sku: product.uniqueId,
                       inventory_quantity: 999999,
                       fulfillment_service: "manual",
@@ -147,7 +145,7 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
-        console.log(createData); // Log Shopify response for debugging
+        console.log("Shopify Response:", JSON.stringify(createData, null, 2)); // Log full Shopify response
 
         if (createData.errors) throw new Error(createData.errors[0].message);
 
@@ -167,7 +165,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       body: JSON.stringify({
-        executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`,
+        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
         stats: {
           totalProducts: products.length,
           processed: results.processed,
@@ -186,7 +184,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         error: "Processing failed",
         message: err.message,
-        executionTime: `${((Date.now() - startTime) / 1000).toFixed(2)}s`
+        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`
       })
     };
   }
