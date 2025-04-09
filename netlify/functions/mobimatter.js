@@ -1,13 +1,6 @@
-import fetch from 'node-fetch';
+// mobimatter.js
 
-const COUNTRY_FLAGS = new Proxy({}, {
-  get: (target, code) =>
-    String.fromCodePoint(
-      ...[...code.toUpperCase()].map(c => 0x1f1e6 - 65 + c.charCodeAt())
-    )
-});
-
-exports.handler = async function () {
+export const handler = async () => {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
@@ -16,16 +9,22 @@ exports.handler = async function () {
     SHOPIFY_API_VERSION = "2025-04",
   } = process.env;
 
-  const MOBIMATTER_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const COUNTRY_FLAGS = new Proxy({}, {
+    get: (target, code) =>
+      String.fromCodePoint(
+        ...[...code.toUpperCase()].map(c => 0x1f1e6 - 65 + c.charCodeAt())
+      )
+  });
+
   const created = [];
   const failed = [];
 
   try {
-    const response = await fetch(MOBIMATTER_URL, {
+    const response = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
         "merchantId": MOBIMATTER_MERCHANT_ID,
-      },
+      }
     });
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
@@ -67,14 +66,8 @@ exports.handler = async function () {
       const mutation = `
         mutation productCreate($input: ProductInput!) {
           productCreate(input: $input) {
-            product {
-              id
-              title
-            }
-            userErrors {
-              field
-              message
-            }
+            product { id title }
+            userErrors { field message }
           }
         }
       `;
