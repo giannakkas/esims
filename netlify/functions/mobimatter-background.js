@@ -1,15 +1,11 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// Country flag emojis
-const COUNTRY_FLAGS = new Proxy({}, {
-  get: (target, code) => {
-    if (!code || typeof code !== 'string' || code.length !== 2) return '🌐';
-    const flag = code.toUpperCase().replace(/./g, char =>
-      String.fromCodePoint(127397 + char.charCodeAt())
-    );
-    return flag;
-  }
-});
+// Map country codes to emoji flags
+const getFlagEmoji = (countryCode) => {
+  return countryCode.toUpperCase().replace(/./g, char => 
+    String.fromCodePoint(127397 + char.charCodeAt())
+  );
+};
 
 exports.handler = async () => {
   const {
@@ -25,18 +21,15 @@ exports.handler = async () => {
   const failed = [];
 
   try {
-    const response = await fetch(MOBIMATTER_API_URL, {
+    const res = await fetch(MOBIMATTER_API_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID
+        "merchantId": MOBIMATTER_MERCHANT_ID
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Mobimatter fetch failed: ${response.status}`);
-    }
-
-    const { result: products } = await response.json();
+    if (!res.ok) throw new Error(`Mobimatter fetch failed: ${res.status}`);
+    const { result: products } = await res.json();
 
     for (const product of products.slice(0, 10)) {
       const details = {};
@@ -46,25 +39,24 @@ exports.handler = async () => {
 
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const price = product.retailPrice?.toFixed(2);
-      const sku = product.uniqueId;
-      const imageSrc = product.providerLogo;
       const vendor = product.providerName || "Mobimatter";
+      const countries = (product.countries || []).map(code => `${getFlagEmoji(code)} ${code}`).join(", ");
+      const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const has5G = details.FIVEG === "1" ? "5G" : "4G";
-      const countries = (product.countries || []).map(c => `${COUNTRY_FLAGS[c]} ${c}`).join("<br>");
+      const imageSrc = product.providerLogo;
 
       const descriptionHtml = `
         <div class="esim-description">
           <h3>${title}</h3>
+          <p><strong>Countries:</strong> ${countries}</p>
+          <p><strong>Data:</strong> ${dataAmount}</p>
+          <p><strong>Validity:</strong> ${validity} days</p>
           <p><strong>Network:</strong> ${has5G}</p>
           <p><strong>Speed:</strong> ${speed}</p>
           <p><strong>Top-up:</strong> ${topUp}</p>
-          <p><strong>Countries:</strong><br>${countries}</p>
-          <p><strong>Data:</strong> ${dataAmount}</p>
-          <p><strong>Validity:</strong> ${validity} days</p>
           <p><strong>Provider:</strong> ${vendor}</p>
         </div>
       `;
@@ -90,16 +82,13 @@ exports.handler = async () => {
           descriptionHtml,
           vendor,
           productType: "eSIM",
-          tags: [
-            has5G,
-            `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
-            ...(product.countries || []).map(c => `country-${c}`)
-          ],
+          tags: [has5G, `data-${dataAmount}`, ...product.countries.map(c => `country-${c}`)],
           status: "ACTIVE"
         }
       };
 
-      const shopifyResponse = await fetch(
+      // Step 1: Create the product
+      const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
         {
           method: "POST",
@@ -111,62 +100,43 @@ exports.handler = async () => {
         }
       );
 
-      const shopifyJson = await shopifyResponse.json();
-      const userErrors = shopifyJson?.data?.productCreate?.userErrors;
+      const json = await shopifyRes.json();
+      const productNode = json.data?.productCreate?.product;
+      const errors = json.data?.productCreate?.userErrors;
 
-      if (userErrors?.length) {
-        failed.push({
-          title,
-          reason: userErrors.map(e => e.message).join(", ")
-        });
-      } else {
-        const productId = shopifyJson?.data?.productCreate?.product?.id;
-
-        // Add price variant with separate call
-        const variantMutation = `
-          mutation productVariantCreate($input: ProductVariantInput!) {
-            productVariantCreate(input: $input) {
-              productVariant {
-                id
-              }
-              userErrors {
-                field
-                message
-              }
-            }
-          }
-        `;
-        const variantInput = {
-          input: {
-            productId,
-            price,
-            sku,
-            inventoryQuantity: 999999,
-            inventoryManagement: null,
-            fulfillmentService: "manual",
-            taxable: true
-          }
-        };
-
-        const variantResponse = await fetch(
-          `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY
-            },
-            body: JSON.stringify({ query: variantMutation, variables: variantInput })
-          }
-        );
-
-        const variantJson = await variantResponse.json();
-        if (variantJson?.data?.productVariantCreate?.userErrors?.length) {
-          failed.push({ title, reason: "Price variant error" });
-        } else {
-          created.push(title);
-        }
+      if (!shopifyRes.ok || errors?.length || !productNode?.id) {
+        failed.push({ title, reason: errors?.map(e => e.message).join(", ") || "Unknown error" });
+        continue;
       }
+
+      // Step 2: Set the price and image via REST API
+      const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${productNode.id.split("/").pop()}.json`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY
+        },
+        body: JSON.stringify({
+          product: {
+            id: productNode.id.split("/").pop(),
+            variants: [
+              {
+                price,
+                inventory_quantity: 999999,
+                inventory_management: "shopify"
+              }
+            ],
+            images: imageSrc ? [{ src: imageSrc }] : []
+          }
+        })
+      });
+
+      if (!variantRes.ok) {
+        failed.push({ title, reason: "Failed to update price/image" });
+        continue;
+      }
+
+      created.push(title);
     }
 
     return {
