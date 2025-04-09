@@ -1,187 +1,134 @@
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = require("node-fetch");
 
-// Configuration
-const CONFIG = {
-  SAFETY_TIMEOUT: 9500,         // 9.5s safety margin
-  PRODUCTS_PER_RUN: 5,          // Optimal batch size
-  MOBIMATTER_API_URL: "https://api.mobimatter.com/mobimatter/api/v2/products",
-  API_TIMEOUTS: {
-    mobimatter: 2000,           // 2s for product fetch
-    shopify: 3000               // 3s for Shopify operations
-  }
+// Country code to emoji flag
+const getFlagEmoji = (code) => {
+  return [...code.toUpperCase()]
+    .map(c => String.fromCodePoint(0x1f1e6 - 65 + c.charCodeAt(0)))
+    .join('');
 };
 
-// Country code to flag emoji mapping
-const COUNTRY_FLAGS = {
-  US: '🇺🇸', GB: '🇬🇧', FR: '🇫🇷', DE: '🇩🇪', IT: '🇮🇹',
-  ES: '🇪🇸', JP: '🇯🇵', KR: '🇰🇷', CN: '🇨🇳', IN: '🇮🇳',
-  BR: '🇧🇷', CA: '🇨🇦', AU: '🇦🇺', NZ: '🇳🇿', SG: '🇸🇬',
-  ME: '🇲🇪', RS: '🇷🇸', VN: '🇻🇳', BG: '🇧🇬', ID: '🇮🇩'
-};
+exports.handler = async function () {
+  const {
+    MOBIMATTER_API_KEY,
+    MOBIMATTER_MERCHANT_ID,
+    SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+    SHOPIFY_API_VERSION = "2025-04",
+  } = process.env;
 
-// Helper to extract product details
-const getProductDetails = (product) => {
-  const details = {};
-  (product.productDetails || []).forEach(({ name, value }) => {
-    details[name.trim()] = value;
-  });
-  return details;
-};
-
-// Build countries section with flags
-const buildCountriesSection = (countries) => {
-  if (!countries || !countries.length) return '';
-  
-  return `
-    <div class="countries-section">
-      <p><strong>Countries:</strong></p>
-      <ul>
-        ${countries.map(country => {
-          const flag = COUNTRY_FLAGS[country] || '🌐';
-          return `<li>${flag} ${country}</li>`;
-        }).join('')}
-      </ul>
-    </div>
-  `;
-};
-
-// Build full description HTML
-const buildDescription = (product, details) => {
-  return `
-    <div class="esim-description">
-      <h3>${details.PLAN_TITLE || product.productFamilyName || 'eSIM Plan'}</h3>
-      ${buildCountriesSection(product.countries)}
-      <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || 'Unlimited'} ${details.PLAN_DATA_UNIT || 'GB'}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || '30'} days</p>
-      ${details.FIVEG === "1" ? '<p><strong>Network:</strong> 5G Supported</p>' : ''}
-      ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ''}
-      ${details.TOPUP === "1" ? '<p><strong>Top-up:</strong> Available</p>' : ''}
-      <p><strong>Provider:</strong> ${product.providerName || 'Mobimatter'}</p>
-    </div>
-  `;
-};
-
-exports.handler = async (event) => {
-  const startTime = Date.now();
-  const results = {
-    processed: 0,
-    created: [],
-    errors: []
-  };
+  const mobimatterUrl = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const created = [];
+  const failed = [];
 
   try {
-    // 1. Fetch products with timeout
-    const mobiResponse = await fetch(CONFIG.MOBIMATTER_API_URL, {
+    const response = await fetch(mobimatterUrl, {
       headers: {
-        "api-key": process.env.MOBIMATTER_API_KEY,
-        "merchantId": process.env.MOBIMATTER_MERCHANT_ID,
-        "Ocp-Apim-Subscription-Key": process.env.MOBIMATTER_SUBSCRIPTION_KEY
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID,
       },
-      timeout: CONFIG.API_TIMEOUTS.mobimatter
     });
 
-    if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
-    const { result: products } = await mobiResponse.json();
+    if (!response.ok) {
+      throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    }
 
-    // 2. Process products with time checks
-    for (const product of products.slice(0, CONFIG.PRODUCTS_PER_RUN)) {
-      if (Date.now() - startTime > CONFIG.SAFETY_TIMEOUT) {
-        results.skipped = true;
-        break;
+    const { result: products } = await response.json();
+
+    for (const product of products.slice(0, 10)) {
+      const details = {};
+      (product.productDetails || []).forEach(({ name, value }) => {
+        details[name.trim()] = value;
+      });
+
+      const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+      const price = product.retailPrice?.toFixed(2);
+      const has5G = details.FIVEG === "1" ? "5G" : "4G";
+      const speed = details.SPEED || "Unknown";
+      const topUp = details.TOPUP === "1" ? "Available" : "Not available";
+      const countries = (product.countries || [])
+        .map(code => `${getFlagEmoji(code)} ${code}`)
+        .join(", ");
+      const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
+      const validity = details.PLAN_VALIDITY || "?";
+      const vendor = product.providerName || "Mobimatter";
+
+      if (!title || !price) {
+        failed.push({ title: title || "(missing)", reason: "Missing title or price" });
+        continue;
       }
 
-      try {
-        const details = getProductDetails(product);
+      const descriptionHtml = `
+        <div class="esim-description">
+          <h3>${title}</h3>
+          <p><strong>Countries:</strong> ${countries}</p>
+          <p><strong>Data:</strong> ${dataAmount}</p>
+          <p><strong>Validity:</strong> ${validity} days</p>
+          <p><strong>Network:</strong> ${has5G}</p>
+          <p><strong>Speed:</strong> ${speed}</p>
+          <p><strong>Top-up:</strong> ${topUp}</p>
+          <p><strong>Provider:</strong> ${vendor}</p>
+        </div>
+      `;
 
-        // Prepare product input for Shopify
-        const productInput = {
-          title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
-          descriptionHtml: buildDescription(product, details),
-          productType: "eSIM",
-          vendor: product.providerName || "Mobimatter",
-          tags: [
-            details.FIVEG === "1" ? "5G" : "4G",
-            `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
-            ...(product.countries || []).map(c => `country-${c}`)
-          ],
-          status: "ACTIVE",
-          variants: [{
-            price: product.retailPrice || "Not Available",
-            sku: product.uniqueId,
-            inventoryQuantity: 999999,
-            fulfillmentService: "manual",
-            inventoryManagement: null,
-            taxable: true,
-          }],
-          images: [{
-            src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
-          }]
-        };
-
-        // 3. Create Shopify product with enhanced description
-        const createResponse = await fetch(
-          `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION || '2025-04'}/graphql.json`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_KEY,
-            },
-            body: JSON.stringify({
-              query: `mutation productCreate($input: ProductInput!) {
-                productCreate(input: $input) {
-                  product { id title descriptionHtml variants { id price sku inventoryQuantity } images { id src } }
-                  userErrors { field message }
-                }
-              }`,
-              variables: {
-                input: productInput
-              }
-            }),
-            timeout: CONFIG.API_TIMEOUTS.shopify
+      const mutation = `
+        mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product {
+              id
+              title
+            }
+            userErrors {
+              field
+              message
+            }
           }
-        );
+        }
+      `;
 
-        const createData = await createResponse.json();
-        if (createData.errors) throw new Error(createData.errors[0].message);
+      const variables = {
+        input: {
+          title,
+          descriptionHtml,
+          vendor,
+          productType: "eSIM",
+          tags: [has5G, "eSIM", ...product.countries.map(c => `country-${c}`)],
+          status: "ACTIVE"
+        }
+      };
 
-        results.created.push({
-          title: createData.data.productCreate.product.title,
-          countries: product.countries || []
+      const shopifyRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({ query: mutation, variables }),
+        }
+      );
+
+      const shopifyJson = await shopifyRes.json();
+      const errors = shopifyJson?.data?.productCreate?.userErrors;
+
+      if (!shopifyRes.ok || (errors && errors.length)) {
+        failed.push({
+          title,
+          reason: errors?.map(e => e.message).join(", ") || `Status ${shopifyRes.status}`,
         });
-        results.processed++;
-      } catch (err) {
-        results.errors.push({
-          product: product.productFamilyName || "Unnamed",
-          error: err.message
-        });
+      } else {
+        created.push(title);
       }
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
-        stats: {
-          totalProducts: products.length,
-          processed: results.processed,
-          created: results.created.length,
-          errors: results.errors.length
-        },
-        sampleDescription: buildDescription(products[0], getProductDetails(products[0])),
-        nextSteps: results.processed === CONFIG.PRODUCTS_PER_RUN ? 
-          "Run again to process more products" : null
-      })
+      body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed }),
     };
-
   } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Processing failed",
-        message: err.message,
-        executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`
-      })
+      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
     };
   }
 };
