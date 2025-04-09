@@ -105,7 +105,7 @@ exports.handler = async (event) => {
             body: JSON.stringify({
               query: `mutation productCreate($input: ProductInput!) {
                 productCreate(input: $input) {
-                  product { id title descriptionHtml }
+                  product { id title descriptionHtml variants { id price sku inventoryQuantity } images { id src } }
                   userErrors { field message }
                 }
               }`,
@@ -121,21 +121,17 @@ exports.handler = async (event) => {
                     ...(product.countries || []).map(c => `country-${c}`)
                   ],
                   status: "ACTIVE",
-                  variants: [
-                    {
-                      price: product.retailPrice || "Not Available", // Ensure price is available
-                      sku: product.uniqueId,
-                      inventory_quantity: 999999,
-                      fulfillment_service: "manual",
-                      inventory_management: null,
-                      taxable: true,
-                    }
-                  ],
-                  images: [
-                    {
-                      src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
-                    }
-                  ]
+                  variants: [{
+                    price: product.retailPrice || "Not Available", // Ensure price is available
+                    sku: product.uniqueId,
+                    inventoryQuantity: 999999,
+                    fulfillmentService: "manual",
+                    inventoryManagement: null,
+                    taxable: true,
+                  }],
+                  images: [{
+                    src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
+                  }]
                 }
               }
             }),
@@ -144,8 +140,6 @@ exports.handler = async (event) => {
         );
 
         const createData = await createResponse.json();
-        console.log("Shopify Response:", JSON.stringify(createData, null, 2)); // Log full Shopify response
-
         if (createData.errors) throw new Error(createData.errors[0].message);
 
         results.created.push({
