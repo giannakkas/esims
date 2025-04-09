@@ -16,6 +16,7 @@ const COUNTRY_FLAGS = {
   US: '🇺🇸', GB: '🇬🇧', FR: '🇫🇷', DE: '🇩🇪', IT: '🇮🇹',
   ES: '🇪🇸', JP: '🇯🇵', KR: '🇰🇷', CN: '🇨🇳', IN: '🇮🇳',
   BR: '🇧🇷', CA: '🇨🇦', AU: '🇦🇺', NZ: '🇳🇿', SG: '🇸🇬',
+  // Add more country codes as needed
   ME: '🇲🇪', RS: '🇷🇸', VN: '🇻🇳', BG: '🇧🇬', ID: '🇮🇩'
 };
 
@@ -92,7 +93,33 @@ exports.handler = async (event) => {
 
       try {
         const details = getProductDetails(product);
-        
+
+        // Debug: Log the product details and input
+        console.log("Product details:", details);
+        console.log("Product input:", {
+          title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
+          descriptionHtml: buildDescription(product, details),
+          productType: "eSIM",
+          vendor: product.providerName || "Mobimatter",
+          tags: [
+            details.FIVEG === "1" ? "5G" : "4G",
+            `data-${details.PLAN_DATA_LIMIT || 'unlimited'}${details.PLAN_DATA_UNIT || 'GB'}`,
+            ...(product.countries || []).map(c => `country-${c}`)
+          ],
+          status: "ACTIVE",
+          variants: [{
+            price: product.retailPrice || "Not Available", // Ensure price is available
+            sku: product.uniqueId,
+            inventoryQuantity: 999999,
+            fulfillmentService: "manual",
+            inventoryManagement: null,
+            taxable: true,
+          }],
+          images: [{
+            src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
+          }]
+        });
+
         // 3. Create Shopify product with enhanced description
         const createResponse = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION || '2025-04'}/graphql.json`,
@@ -122,7 +149,7 @@ exports.handler = async (event) => {
                   ],
                   status: "ACTIVE",
                   variants: [{
-                    price: product.retailPrice || "Not Available", // Ensure price is available
+                    price: product.retailPrice || "Not Available",
                     sku: product.uniqueId,
                     inventoryQuantity: 999999,
                     fulfillmentService: "manual",
@@ -130,7 +157,7 @@ exports.handler = async (event) => {
                     taxable: true,
                   }],
                   images: [{
-                    src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
+                    src: product.providerLogo || 'https://via.placeholder.com/150',
                   }]
                 }
               }
