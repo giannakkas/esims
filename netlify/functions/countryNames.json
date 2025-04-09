@@ -1,12 +1,24 @@
 {
+  "US": "United States",
+  "GB": "United Kingdom",
+  "FR": "France",
+  "DE": "Germany",
+  "IT": "Italy",
+  "ES": "Spain",
+  "JP": "Japan",
+  "KR": "South Korea",
+  "CN": "China",
+  "IN": "India",
+  "BR": "Brazil",
+  "CA": "Canada",
+  "AU": "Australia",
+  "NZ": "New Zealand",
+  "SG": "Singapore",
   "ME": "Montenegro",
   "RS": "Serbia",
   "VN": "Vietnam",
   "BG": "Bulgaria",
   "ID": "Indonesia",
-  "FR": "France",
-  "JP": "Japan",
-  "US": "United States",
-  "GB": "United Kingdom"
-  // Add more country codes as needed
+  "TH": "Thailand",
+  "AE": "United Arab Emirates"
 }
