@@ -5,7 +5,6 @@ const CONFIG = {
   SAFETY_TIMEOUT: 9500,         // 9.5s safety margin
   PRODUCTS_PER_RUN: 5,          // Optimal batch size
   MOBIMATTER_API_URL: "https://api.mobimatter.com/mobimatter/api/v2/products",
-  SHOPIFY_API_VERSION: "2024-01", // Stable API version
   API_TIMEOUTS: {
     mobimatter: 2000,           // 2s for product fetch
     shopify: 3000               // 3s for Shopify operations
@@ -72,25 +71,17 @@ exports.handler = async (event) => {
 
   try {
     // 1. Fetch products with timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CONFIG.API_TIMEOUTS.mobimatter);
-    
     const mobiResponse = await fetch(CONFIG.MOBIMATTER_API_URL, {
-      signal: controller.signal,
       headers: {
         "api-key": process.env.MOBIMATTER_API_KEY,
         "merchantId": process.env.MOBIMATTER_MERCHANT_ID,
         "Ocp-Apim-Subscription-Key": process.env.MOBIMATTER_SUBSCRIPTION_KEY
-      }
+      },
+      timeout: CONFIG.API_TIMEOUTS.mobimatter
     });
-    clearTimeout(timeout);
 
-    if (!mobiResponse.ok) {
-      throw new Error(`MobiMatter API failed: ${mobiResponse.status} ${await mobiResponse.text()}`);
-    }
-    
+    if (!mobiResponse.ok) throw new Error(`MobiMatter API: ${mobiResponse.status}`);
     const { result: products } = await mobiResponse.json();
-    if (!products?.length) throw new Error("No products found in Mobimatter response");
 
     // 2. Process products with time checks
     for (const product of products.slice(0, CONFIG.PRODUCTS_PER_RUN)) {
@@ -101,9 +92,8 @@ exports.handler = async (event) => {
 
       try {
         const details = getProductDetails(product);
-        const price = (product.retailPrice?.toFixed(2) || "0.00";
 
-        // Prepare Shopify product input
+        // Prepare product input for Shopify
         const productInput = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
           descriptionHtml: buildDescription(product, details),
@@ -116,67 +106,53 @@ exports.handler = async (event) => {
           ],
           status: "ACTIVE",
           variants: [{
-            price: price.toString(), // Critical: must be string
+            price: product.retailPrice || "Not Available",
             sku: product.uniqueId,
             inventoryQuantity: 999999,
             fulfillmentService: "manual",
-            inventoryManagement: "shopify",
+            inventoryManagement: null,
             taxable: true,
-            requiresShipping: false
           }],
           images: [{
-            src: product.providerLogo || 'https://via.placeholder.com/150',
+            src: product.providerLogo || 'https://via.placeholder.com/150', // Placeholder if logo is missing
           }]
         };
 
-        // 3. Create Shopify product
-        const shopifyResponse = await fetch(
-          `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${CONFIG.SHOPIFY_API_VERSION}/graphql.json`,
+        // 3. Create Shopify product with enhanced description
+        const createResponse = await fetch(
+          `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION || '2025-04'}/graphql.json`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_KEY,
-              "Accept": "application/json"
             },
             body: JSON.stringify({
               query: `mutation productCreate($input: ProductInput!) {
                 productCreate(input: $input) {
-                  product { id title variants(first: 1) { edges { node { id price } } } }
+                  product { id title descriptionHtml variants { id price sku inventoryQuantity } images { id src } }
                   userErrors { field message }
                 }
               }`,
-              variables: { input: productInput }
-            })
+              variables: {
+                input: productInput
+              }
+            }),
+            timeout: CONFIG.API_TIMEOUTS.shopify
           }
         );
 
-        const responseData = await shopifyResponse.json();
-        
-        // Enhanced error handling
-        if (!shopifyResponse.ok) {
-          throw new Error(`Shopify API error: ${shopifyResponse.status}`);
-        }
-        if (responseData.errors) {
-          throw new Error(`GraphQL errors: ${JSON.stringify(responseData.errors)}`);
-        }
-        if (responseData.data?.productCreate?.userErrors?.length) {
-          throw new Error(`User errors: ${
-            responseData.data.productCreate.userErrors.map(e => `${e.field}: ${e.message}`).join(', ')
-          }`);
-        }
+        const createData = await createResponse.json();
+        if (createData.errors) throw new Error(createData.errors[0].message);
 
         results.created.push({
-          title: responseData.data.productCreate.product.title,
-          id: responseData.data.productCreate.product.id
+          title: createData.data.productCreate.product.title,
+          countries: product.countries || []
         });
         results.processed++;
-        
       } catch (err) {
-        console.error(`Failed to process product ${product.uniqueId}:`, err);
         results.errors.push({
           product: product.productFamilyName || "Unnamed",
-          sku: product.uniqueId,
           error: err.message
         });
       }
@@ -184,9 +160,7 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        success: true,
         executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`,
         stats: {
           totalProducts: products.length,
@@ -194,20 +168,16 @@ exports.handler = async (event) => {
           created: results.created.length,
           errors: results.errors.length
         },
-        createdProducts: results.created,
-        errors: results.errors,
+        sampleDescription: buildDescription(products[0], getProductDetails(products[0])),
         nextSteps: results.processed === CONFIG.PRODUCTS_PER_RUN ? 
-          "Run again to process more products" : "All products processed"
+          "Run again to process more products" : null
       })
     };
 
   } catch (err) {
-    console.error("Critical error:", err);
     return {
       statusCode: 500,
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        success: false,
         error: "Processing failed",
         message: err.message,
         executionTime: `${((Date.now() - startTime)/1000).toFixed(2)}s`
