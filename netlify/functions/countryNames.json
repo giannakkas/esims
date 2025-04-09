@@ -1,0 +1,12 @@
+{
+  "ME": "Montenegro",
+  "RS": "Serbia",
+  "VN": "Vietnam",
+  "BG": "Bulgaria",
+  "ID": "Indonesia",
+  "FR": "France",
+  "JP": "Japan",
+  "US": "United States",
+  "GB": "United Kingdom"
+  // Add more country codes as needed
+}
