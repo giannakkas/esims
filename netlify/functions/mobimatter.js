@@ -1,6 +1,13 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+import fetch from 'node-fetch';
 
-exports.handler = async () => {
+const COUNTRY_FLAGS = new Proxy({}, {
+  get: (target, code) =>
+    String.fromCodePoint(
+      ...[...code.toUpperCase()].map(c => 0x1f1e6 - 65 + c.charCodeAt())
+    )
+});
+
+exports.handler = async function () {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
@@ -9,22 +16,19 @@ exports.handler = async () => {
     SHOPIFY_API_VERSION = "2025-04",
   } = process.env;
 
-  const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const MOBIMATTER_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
   const created = [];
   const failed = [];
 
   try {
-    const response = await fetch(MOBIMATTER_API_URL, {
+    const response = await fetch(MOBIMATTER_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
-        "merchantId": MOBIMATTER_MERCHANT_ID
-      }
+        "merchantId": MOBIMATTER_MERCHANT_ID,
+      },
     });
 
-    if (!response.ok) {
-      throw new Error(`Mobimatter fetch failed: ${response.status}`);
-    }
-
+    if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
     const { result: products } = await response.json();
 
     for (const product of products.slice(0, 10)) {
@@ -38,7 +42,9 @@ exports.handler = async () => {
       const has5G = details.FIVEG === "1" ? "5G" : "4G";
       const speed = details.SPEED || "Unknown";
       const topUp = details.TOPUP === "1" ? "Available" : "Not available";
-      const countries = (product.countries || []).map(c => `:flag-${c.toLowerCase()}:`).join(" ");
+      const countries = (product.countries || [])
+        .map(code => `${COUNTRY_FLAGS[code] || ''} ${code}`)
+        .join(", ");
       const dataAmount = `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`;
       const validity = details.PLAN_VALIDITY || "?";
       const vendor = product.providerName || "Mobimatter";
@@ -55,6 +61,7 @@ exports.handler = async () => {
         <p><strong>Countries:</strong> ${countries}</p>
         <p><strong>Data:</strong> ${dataAmount}</p>
         <p><strong>Validity:</strong> ${validity} days</p>
+        <p><strong>Price:</strong> $${price}</p>
       `;
 
       const mutation = `
@@ -78,12 +85,12 @@ exports.handler = async () => {
           descriptionHtml,
           vendor,
           productType: "eSIM",
-          tags: [has5G, "eSIM", ...product.countries.map(c => `country-${c}`)],
-          status: "ACTIVE"
-        }
+          tags: [has5G, `data-${dataAmount.replace(/\s/g, '')}`, ...product.countries.map(c => `country-${c}`)],
+          status: "ACTIVE",
+        },
       };
 
-      const shopifyResponse = await fetch(
+      const shopifyRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
         {
           method: "POST",
@@ -91,17 +98,17 @@ exports.handler = async () => {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify({ query: mutation, variables })
+          body: JSON.stringify({ query: mutation, variables }),
         }
       );
 
-      const shopifyJson = await shopifyResponse.json();
-      const userErrors = shopifyJson?.data?.productCreate?.userErrors;
+      const json = await shopifyRes.json();
+      const errors = json?.data?.productCreate?.userErrors;
 
-      if (!shopifyResponse.ok || (userErrors && userErrors.length > 0)) {
+      if (!shopifyRes.ok || (errors && errors.length)) {
         failed.push({
           title,
-          reason: userErrors.map(e => e.message).join(", ") || `Status ${shopifyResponse.status}`
+          reason: errors?.map(e => e.message).join(", ") || `Status ${shopifyRes.status}`,
         });
       } else {
         created.push(title);
@@ -110,16 +117,15 @@ exports.handler = async () => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed })
+      body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed }),
     };
-
   } catch (err) {
     return {
       statusCode: 500,
       body: JSON.stringify({
         error: "Mobimatter fetch or Shopify sync failed",
-        message: err.message
-      })
+        message: err.message,
+      }),
     };
   }
 };
