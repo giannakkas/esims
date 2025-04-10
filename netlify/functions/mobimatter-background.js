@@ -1,151 +1,177 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const fetch = require('node-fetch');
 
-// Country codes to full names with flags
-const countryMap = {
-  "ME": "🇲🇪 Montenegro",
-  "RS": "🇷🇸 Serbia",
-  "VN": "🇻🇳 Vietnam",
-  "BG": "🇧🇬 Bulgaria",
-  "ID": "🇮🇩 Indonesia",
-  "FR": "🇫🇷 France",
-  "JP": "🇯🇵 Japan",
-  "TH": "🇹🇭 Thailand",
-  "US": "🇺🇸 United States",
-  "GB": "🇬🇧 United Kingdom",
-  "DE": "🇩🇪 Germany",
-  "IT": "🇮🇹 Italy",
-  "ES": "🇪🇸 Spain",
-  "GR": "🇬🇷 Greece"
-  // ➕ Add more country codes as needed
-};
-
-exports.handler = async () => {
-  console.log("🚀 Mobimatter background sync started");
-
-  const {
-    MOBIMATTER_API_KEY,
-    MOBIMATTER_MERCHANT_ID,
-    SHOPIFY_ADMIN_API_KEY,
-    SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = "2025-04"
-  } = process.env;
-
-  const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [];
-  const failed = [];
+exports.handler = async function () {
+  console.log('🚀 Mobimatter background sync started');
 
   try {
-    const mobiRes = await fetch(MOBIMATTER_API_URL, {
-      headers: {
-        "api-key": MOBIMATTER_API_KEY,
-        "merchantId": MOBIMATTER_MERCHANT_ID
-      }
-    });
+    const response = await fetch('https://api.mobimatter.com/mobimatter/api/v2/products');
+    const mobimatterProducts = await response.json();
+    console.log(`✅ Fetched ${mobimatterProducts.length} products`);
 
-    if (!mobiRes.ok) {
-      throw new Error(`Mobimatter API failed: ${mobiRes.status}`);
-    }
+    const selectedProducts = mobimatterProducts.slice(0, 10); // Limit per sync
 
-    const { result: products } = await mobiRes.json();
-    console.log(`✅ Fetched ${products.length} products`);
+    for (const product of selectedProducts) {
+      const title = product.name;
+      const descriptionHtml = generateHtmlDescription(product);
+      const vendor = product.provider.name || 'Mobimatter';
+      const productType = 'eSIM';
+      const tags = generateTags(product);
+      const price = product.price.amount.toFixed(2);
+      const imageSrc = product.provider.logoUrl;
 
-    for (const product of products.slice(0, 10)) {
-      try {
-        const details = {};
-        (product.productDetails || []).forEach(({ name, value }) => {
-          details[name.trim()] = value;
-        });
-
-        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const price = product.retailPrice?.toFixed(2);
-        const image = product.providerLogo;
-        const countries = (product.countries || []).map(code => countryMap[code] || `🌐 ${code}`);
-
-        const descriptionHtml = `
-          <div class="esim-description">
-            <h3>${title}</h3>
-            <div class="countries-section">
-              <p><strong>Countries:</strong></p>
-              <ul>${countries.map(c => `<li>${c}</li>`).join("")}</ul>
-            </div>
-            <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-            <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} days</p>
-            ${details.FIVEG === "1" ? "<p><strong>Network:</strong> 5G Supported</p>" : ""}
-            ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
-            ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
-            <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
-          </div>
-        `;
-
-        const mutation = `
-          mutation productCreate($input: ProductInput!) {
-            productCreate(input: $input) {
-              product { id title }
-              userErrors { field message }
+      // 1. Create the product
+      const createdProduct = await shopifyGraphQL(`
+        mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product {
+              id
+              title
+            }
+            userErrors {
+              field
+              message
             }
           }
-        `;
-
-        const variables = {
-          input: {
-            title,
-            descriptionHtml,
-            productType: "eSIM",
-            vendor: product.providerName || "Mobimatter",
-            tags: [
-              details.FIVEG === "1" ? "5G" : "4G",
-              `data-${details.PLAN_DATA_LIMIT || "?"}${details.PLAN_DATA_UNIT || "GB"}`,
-              ...(product.countries || []).map(c => `country-${c}`)
-            ],
-            status: "ACTIVE", // Push to all sales channels
-            variants: [
-              {
-                price,
-                sku: product.productId,
-                inventoryQuantity: 999999,
-                fulfillmentService: "manual",
-                inventoryManagement: null,
-                taxable: true
-              }
-            ],
-            images: image ? [{ src: image }] : []
-          }
-        };
-
-        const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY
-          },
-          body: JSON.stringify({ query: mutation, variables })
-        });
-
-        const json = await shopifyRes.json();
-        if (json.errors || json.data?.productCreate?.userErrors?.length) {
-          console.error("❌ Shopify Error:", JSON.stringify(json, null, 2));
-          failed.push({ title, reason: JSON.stringify(json.errors || json.data.productCreate.userErrors) });
-        } else {
-          console.log(`✅ Created: ${title}`);
-          created.push(title);
         }
+      `, {
+        input: {
+          title,
+          descriptionHtml,
+          vendor,
+          productType,
+          tags,
+          status: 'ACTIVE',
+        }
+      });
 
-      } catch (err) {
-        console.error("❌ Product sync failed:", err);
-        failed.push({ title: product.productFamilyName, reason: err.message });
+      const productId = createdProduct.data?.productCreate?.product?.id;
+      if (!productId) {
+        console.error('❌ Failed to create product:', createdProduct.errors || createdProduct.data?.productCreate?.userErrors);
+        continue;
       }
+
+      // 2. Add variant
+      await shopifyGraphQL(`
+        mutation productVariantCreate($input: ProductVariantInput!) {
+          productVariantCreate(input: $input) {
+            productVariant {
+              id
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `, {
+        input: {
+          productId,
+          price,
+          sku: product.id,
+          inventoryQuantity: 999999,
+          fulfillmentService: 'manual',
+          inventoryManagement: null,
+          taxable: true
+        }
+      });
+
+      // 3. Add image
+      await shopifyGraphQL(`
+        mutation productImageCreate($productId: ID!, $image: ImageInput!) {
+          productImageCreate(productId: $productId, image: $image) {
+            image {
+              id
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `, {
+        productId,
+        image: {
+          src: imageSrc
+        }
+      });
+
+      console.log(`✅ Synced product: ${title}`);
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: `Created ${created.length} product(s)`, created, failed })
+      body: JSON.stringify({ message: 'Products synced successfully.' }),
     };
 
-  } catch (err) {
-    console.error("❌ Global error:", err);
+  } catch (error) {
+    console.error('❌ Error syncing products:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Unexpected error", message: err.message })
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };
+
+// Shopify GraphQL helper
+async function shopifyGraphQL(query, variables) {
+  const endpoint = 'https://v861gm-fd.myshopify.com/admin/api/2025-04/graphql.json';
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_TOKEN,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ query, variables })
+  });
+
+  return await response.json();
+}
+
+// Generate full HTML with country flags
+function generateHtmlDescription(product) {
+  const countries = product.countries.map(c => `<li>${getFlagEmoji(c)} ${getCountryName(c)}</li>`).join('');
+  const network = product.is5G ? '5G Supported' : '4G Only';
+
+  return `
+    <div class="esim-description">
+      <h3>${product.name}</h3>
+      <div class="countries-section">
+        <p><strong>Countries:</strong></p>
+        <ul>${countries}</ul>
+      </div>
+      <p><strong>Data:</strong> ${product.dataAmount}</p>
+      <p><strong>Validity:</strong> ${product.validityDays} days</p>
+      <p><strong>Network:</strong> ${network}</p>
+      <p><strong>Speed:</strong> ${product.speed}</p>
+      ${product.isTopupSupported ? '<p><strong>Top-up:</strong> Available</p>' : ''}
+      <p><strong>Provider:</strong> ${product.provider.name}</p>
+    </div>
+  `;
+}
+
+// Add relevant tags
+function generateTags(product) {
+  const tagList = [];
+  if (product.is5G) tagList.push('5G');
+  tagList.push(`data-${product.dataAmount}`);
+  product.countries.forEach(c => tagList.push(`country-${c}`));
+  return tagList;
+}
+
+// Util: Get flag emoji from country code
+function getFlagEmoji(countryCode) {
+  const codePoints = [...countryCode.toUpperCase()].map(char => 0x1f1e6 + char.charCodeAt(0) - 65);
+  return String.fromCodePoint(...codePoints);
+}
+
+// Util: Country name lookup
+function getCountryName(code) {
+  const map = {
+    US: 'United States', GB: 'United Kingdom', FR: 'France', DE: 'Germany', ES: 'Spain', IT: 'Italy',
+    JP: 'Japan', CN: 'China', IN: 'India', RU: 'Russia', BR: 'Brazil', CA: 'Canada', AU: 'Australia',
+    VN: 'Vietnam', TH: 'Thailand', RS: 'Serbia', ME: 'Montenegro', BG: 'Bulgaria', ID: 'Indonesia',
+    // Add more as needed
+  };
+  return map[code] || code;
+}
