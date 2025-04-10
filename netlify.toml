@@ -5,7 +5,8 @@ functions = "netlify/functions"
   [functions.timeout]
     default = 10  # Timeout in seconds
 
-    [[scheduled.functions]]
+[[scheduled.functions]]
 function = "mobimatter-background"
-cron = "0 */6 * * *" # runs every 6 hours
+cron = "0 */12 * * *"
+
 
