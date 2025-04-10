@@ -105,17 +105,17 @@ exports.handler = async () => {
           metafields: [
             {
               key: "provider_logo",
-              value: product.providerLogo,
+              value: product.providerLogo || "",
               namespace: "esim",
             },
             {
               key: "countries",
-              value: product.countries.join(", "),
+              value: product.countries.join(", ") || "",
               namespace: "esim",
             },
             {
               key: "fiveg",
-              value: details.FIVEG,
+              value: details.FIVEG || "0",
               namespace: "esim",
             },
             {
@@ -125,12 +125,12 @@ exports.handler = async () => {
             },
             {
               key: "validity",
-              value: details.PLAN_VALIDITY,
+              value: details.PLAN_VALIDITY || "",
               namespace: "esim",
             },
             {
               key: "data_limit",
-              value: details.PLAN_DATA_LIMIT,
+              value: details.PLAN_DATA_LIMIT || "",
               namespace: "esim",
             },
           ],
