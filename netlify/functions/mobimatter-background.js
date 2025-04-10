@@ -106,37 +106,31 @@ exports.handler = async () => {
             {
               key: "provider_logo",
               value: product.providerLogo,
-              valueType: "file",
               namespace: "esim",
             },
             {
               key: "countries",
               value: product.countries.join(", "),
-              valueType: "multi_line_text",
               namespace: "esim",
             },
             {
               key: "fiveg",
               value: details.FIVEG,
-              valueType: "string",
               namespace: "esim",
             },
             {
               key: "topup",
               value: details.TOPUP === "1" ? "Available" : "Not Available",
-              valueType: "string",
               namespace: "esim",
             },
             {
               key: "validity",
               value: details.PLAN_VALIDITY,
-              valueType: "string",
               namespace: "esim",
             },
             {
               key: "data_limit",
               value: details.PLAN_DATA_LIMIT,
-              valueType: "string",
               namespace: "esim",
             },
           ],
