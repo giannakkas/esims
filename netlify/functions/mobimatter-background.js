@@ -13,7 +13,6 @@ const COUNTRY_INFO = {
   ME: { name: "Montenegro", flag: "🇲🇪" },
   BG: { name: "Bulgaria", flag: "🇧🇬" },
   ID: { name: "Indonesia", flag: "🇮🇩" },
-  // Add more country codes here as needed
 };
 
 const getCountryDisplay = (code) => {
@@ -65,6 +64,8 @@ exports.handler = async () => {
   const failed = [];
 
   try {
+    console.log("Fetching from Mobimatter API...");
+
     const response = await fetch(MOBIMATTER_API_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
@@ -74,6 +75,7 @@ exports.handler = async () => {
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
     const { result: products } = await response.json();
+    console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 10)) {
       try {
@@ -89,7 +91,7 @@ exports.handler = async () => {
             `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
-          status: "ACTIVE",
+          published: true,
         };
 
         const mutation = `
@@ -107,6 +109,7 @@ exports.handler = async () => {
           }
         `;
 
+        console.log("Creating product:", input.title);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -120,16 +123,22 @@ exports.handler = async () => {
         );
 
         const json = await shopifyRes.json();
+        console.log("Shopify GraphQL response:", JSON.stringify(json, null, 2));
 
         const userErrors = json?.data?.productCreate?.userErrors;
         const shopifyId = json?.data?.productCreate?.product?.id;
 
         if (userErrors && userErrors.length) {
           failed.push({ title: input.title, reason: userErrors.map((e) => e.message).join(", ") });
-        } else if (shopifyId) {
-          // Attach price + image using REST Admin API
+          continue;
+        }
+
+        if (shopifyId) {
+          const numericId = shopifyId.split("/").pop();
+          console.log("Created product ID:", numericId);
+
           const variantRes = await fetch(
-            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${shopifyId.split("/").pop()}/variants.json`,
+            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
             {
               method: "GET",
               headers: {
@@ -141,6 +150,7 @@ exports.handler = async () => {
 
           const { variants } = await variantRes.json();
           const variantId = variants[0]?.id;
+          console.log("Variant ID:", variantId);
 
           if (variantId) {
             await fetch(
@@ -163,9 +173,10 @@ exports.handler = async () => {
             );
           }
 
-          if (product.providerLogo) {
+          if (product.providerLogo?.startsWith("http")) {
+            console.log("Uploading image:", product.providerLogo);
             await fetch(
-              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${shopifyId.split("/").pop()}/images.json`,
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
               {
                 method: "POST",
                 headers: {
@@ -184,10 +195,12 @@ exports.handler = async () => {
           created.push(input.title);
         }
       } catch (err) {
+        console.error("Error syncing product:", err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
 
+    console.log("Sync complete. Created:", created.length, "Failed:", failed.length);
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -197,6 +210,7 @@ exports.handler = async () => {
       }),
     };
   } catch (err) {
+    console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({
