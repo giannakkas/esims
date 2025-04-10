@@ -1,5 +1,66 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+// 🌍 Generate flags + country names for all ISO codes
+const getCountryDisplay = (code) => {
+  if (!code || code.length !== 2) return `🌐 ${code}`;
+  const flag = code
+    .toUpperCase()
+    .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
+  const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+  return `${flag} ${name || code}`;
+};
+
+// Extract product details (price, title, etc.)
+const getProductDetails = (product) => {
+  const details = {};
+  (product.productDetails || []).forEach(({ name, value }) => {
+    details[name.trim()] = value;
+  });
+  return details;
+};
+
+// Build product description
+const buildDescription = (product, details) => {
+  const countries = (product.countries || [])
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
+    .join("");
+
+  return `
+    <div class="esim-description">
+      <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
+      <div class="countries-section">
+        <p><strong>Countries:</strong></p>
+        <ul>${countries}</ul>
+      </div>
+      <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
+      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} days</p>
+      ${details.FIVEG === "1" ? "<p><strong>Network:</strong> 5G Supported</p>" : ""}
+      ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
+      ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
+      <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
+    </div>
+  `;
+};
+
+// Upload File to Shopify (Function)
+const uploadFileToShopify = async (fileUrl) => {
+  const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/files.json`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+    },
+    body: JSON.stringify({
+      file: {
+        attachment: fileUrl, // Provide the file URL or base64 data
+      }
+    }),
+  });
+
+  const data = await res.json();
+  return data?.file?.url;  // Return the URL of the uploaded file
+};
+
 exports.handler = async () => {
   const { MOBIMATTER_API_KEY, MOBIMATTER_MERCHANT_ID, SHOPIFY_ADMIN_API_KEY, SHOPIFY_STORE_DOMAIN, SHOPIFY_API_VERSION = "2025-04" } = process.env;
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
