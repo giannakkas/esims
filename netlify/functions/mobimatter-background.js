@@ -90,6 +90,45 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
 
+        const metafields = [
+          {
+            namespace: "esim",
+            key: "provider_logo",
+            value: product.providerLogo,
+            value_type: "string",
+          },
+          {
+            namespace: "esim",
+            key: "countries",
+            value: product.countries.join(", "), // Assuming countries is an array
+            value_type: "string",
+          },
+          {
+            namespace: "esim",
+            key: "fiveg",
+            value: details.FIVEG || "No",
+            value_type: "string",
+          },
+          {
+            namespace: "esim",
+            key: "topup",
+            value: details.TOPUP === "1" ? "Available" : "Not Available",
+            value_type: "string",
+          },
+          {
+            namespace: "esim",
+            key: "validity",
+            value: details.PLAN_VALIDITY || "N/A",
+            value_type: "string",
+          },
+          {
+            namespace: "esim",
+            key: "data_limit",
+            value: details.PLAN_DATA_LIMIT || "N/A",
+            value_type: "string",
+          },
+        ];
+
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
           handle,
@@ -102,6 +141,7 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
+          metafields: metafields,
         };
 
         const mutation = `
