@@ -67,7 +67,7 @@ exports.handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 9999)) {
+    for (const product of products.slice(0, 5)) {
       const uniqueTag = `mobimatter-${product.uniqueId}`;
 
       // 🔍 Check for existing product by tag
