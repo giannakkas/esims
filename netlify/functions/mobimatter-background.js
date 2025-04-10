@@ -1,6 +1,6 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// 🌍 Dynamically generate flags + country names for all ISO country codes
+// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -68,11 +68,11 @@ exports.handler = async () => {
     console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 5)) {
-      const uniqueTag = `mobimatter-${product.uniqueId}`;
+      const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
-      // 🔍 Check for existing product by tag
+      // 🔍 Check for existing product by handle
       const checkRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?tag=${uniqueTag}`,
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
         {
           headers: {
             "Content-Type": "application/json",
@@ -82,7 +82,7 @@ exports.handler = async () => {
       );
       const { products: existing } = await checkRes.json();
       if (existing.length > 0) {
-        console.log(`Skipping duplicate product: ${product.uniqueId}`);
+        console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
       }
@@ -92,6 +92,7 @@ exports.handler = async () => {
 
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
+          handle,
           descriptionHtml: buildDescription(product, details),
           vendor: product.providerName || "Mobimatter",
           productType: "eSIM",
@@ -99,7 +100,6 @@ exports.handler = async () => {
             details.FIVEG === "1" ? "5G" : "4G",
             `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
             ...(product.countries || []).map((c) => `country-${c}`),
-            uniqueTag,
           ],
           published: true,
         };
