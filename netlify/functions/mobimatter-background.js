@@ -104,36 +104,42 @@ exports.handler = async () => {
           published: true,
           metafields: [
             {
+              namespace: "esim",
               key: "provider_logo",
-              value: product.providerLogo || "",
-              namespace: "esim",
+              value: product.providerLogo,
+              valueType: "STRING"
             },
             {
+              namespace: "esim",
               key: "countries",
-              value: product.countries.join(", ") || "",
-              namespace: "esim",
+              value: product.countries.join(", "),
+              valueType: "STRING"
             },
             {
+              namespace: "esim",
               key: "fiveg",
-              value: details.FIVEG || "0",
-              namespace: "esim",
+              value: details.FIVEG,
+              valueType: "STRING"
             },
             {
+              namespace: "esim",
               key: "topup",
               value: details.TOPUP === "1" ? "Available" : "Not Available",
-              namespace: "esim",
+              valueType: "STRING"
             },
             {
+              namespace: "esim",
               key: "validity",
-              value: details.PLAN_VALIDITY || "",
-              namespace: "esim",
+              value: details.PLAN_VALIDITY,
+              valueType: "STRING"
             },
             {
-              key: "data_limit",
-              value: details.PLAN_DATA_LIMIT || "",
               namespace: "esim",
-            },
-          ],
+              key: "data_limit",
+              value: `${details.PLAN_DATA_LIMIT} ${details.PLAN_DATA_UNIT}`,
+              valueType: "STRING"
+            }
+          ]
         };
 
         const mutation = `
@@ -165,8 +171,6 @@ exports.handler = async () => {
         );
 
         const json = await shopifyRes.json();
-        console.log("Shopify Response:", json); // Added to check response for errors
-
         const userErrors = json?.data?.productCreate?.userErrors;
         const shopifyId = json?.data?.productCreate?.product?.id;
 
@@ -207,6 +211,24 @@ exports.handler = async () => {
                     price: product.retailPrice?.toFixed(2),
                     sku: product.uniqueId,
                     inventory_quantity: 999999,
+                  },
+                }),
+              }
+            );
+          }
+
+          if (product.providerLogo?.startsWith("http")) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  image: {
+                    src: product.providerLogo,
                   },
                 }),
               }
