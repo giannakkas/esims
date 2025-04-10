@@ -1,23 +1,13 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// Country flags
-const COUNTRY_INFO = {
-  US: { name: "United States", flag: "🇺🇸" },
-  GB: { name: "United Kingdom", flag: "🇬🇧" },
-  FR: { name: "France", flag: "🇫🇷" },
-  DE: { name: "Germany", flag: "🇩🇪" },
-  IT: { name: "Italy", flag: "🇮🇹" },
-  JP: { name: "Japan", flag: "🇯🇵" },
-  VN: { name: "Vietnam", flag: "🇻🇳" },
-  RS: { name: "Serbia", flag: "🇷🇸" },
-  ME: { name: "Montenegro", flag: "🇲🇪" },
-  BG: { name: "Bulgaria", flag: "🇧🇬" },
-  ID: { name: "Indonesia", flag: "🇮🇩" },
-};
-
+// 🌍 Dynamically generate flags + country names for all ISO country codes
 const getCountryDisplay = (code) => {
-  const country = COUNTRY_INFO[code];
-  return country ? `${country.flag} ${country.name}` : `🌐 ${code}`;
+  if (!code || code.length !== 2) return `🌐 ${code}`;
+  const flag = code
+    .toUpperCase()
+    .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
+  const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+  return `${flag} ${name || code}`;
 };
 
 const getProductDetails = (product) => {
@@ -80,7 +70,7 @@ exports.handler = async () => {
     for (const product of products.slice(0, 9999)) {
       const uniqueTag = `mobimatter-${product.uniqueId}`;
 
-      // 🧠 Check if product already exists
+      // 🔍 Check for existing product by tag
       const checkRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?tag=${uniqueTag}`,
         {
