@@ -77,7 +77,7 @@ exports.handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 10)) {
+    for (const product of products.slice(0, 9999)) {
       try {
         const details = getProductDetails(product);
 
