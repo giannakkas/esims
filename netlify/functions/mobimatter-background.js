@@ -23,7 +23,7 @@ const buildDescription = (product, details) => {
     .join("");
 
   const rawValidity = details.PLAN_VALIDITY || "?";
-  const validityUnit = "days";
+  const validityUnit = details.PLAN_VALIDITY_UNIT || "days";
   const callMinutes = details.CALL_MINUTES || details.PLAN_CALL_MINUTES;
   const smsCount = details.SMS_COUNT || details.PLAN_SMS_COUNT;
 
@@ -148,7 +148,7 @@ exports.handler = async () => {
             {
               namespace: "esim",
               key: "validity",
-              value: `${details.PLAN_VALIDITY || "?"} days`,
+              value: `${details.PLAN_VALIDITY || "?"} ${details.PLAN_VALIDITY_UNIT || "days"}`,
               type: "single_line_text_field",
             },
             {
