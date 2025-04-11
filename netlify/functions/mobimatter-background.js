@@ -27,6 +27,14 @@ const buildDescription = (product, details) => {
   const validityNumber = parseInt(rawValidity);
   const validityUnit = validityNumber >= 30 ? "days" : "days";
 
+  const callText = details.HAS_CALLS === "1"
+    ? (details.CALL_MINUTES ? `📞 ${details.CALL_MINUTES} minutes` : "📞 Available")
+    : "Not available";
+
+  const smsText = details.HAS_SMS === "1"
+    ? (details.SMS_COUNT ? `✉️ ${details.SMS_COUNT} SMS` : "✉️ Available")
+    : "Not available";
+
   return `
     <div class="esim-description">
       <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
@@ -39,8 +47,8 @@ const buildDescription = (product, details) => {
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
-      <p><strong>Calls:</strong> ${details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `📞 ${details.CALL_MINUTES} minutes` : "📞 Available") : "Not available"}</p>
-      <p><strong>SMS:</strong> ${details.HAS_SMS === "1" ? (details.SMS_COUNT ? `✉️ ${details.SMS_COUNT} SMS` : "✉️ Available") : "Not available"}</p>
+      <p><strong>Calls:</strong> ${callText}</p>
+      <p><strong>SMS:</strong> ${smsText}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
   `;
