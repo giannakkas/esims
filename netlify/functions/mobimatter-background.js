@@ -1,4 +1,6 @@
-// Using dynamic import inside an async function to avoid top-level await
+// Importing necessary libraries
+import fetch from 'node-fetch';
+
 async function loadFetch() {
   let fetch;
   try {
@@ -10,18 +12,17 @@ async function loadFetch() {
   }
 }
 
-// Shopify Store Domain and API Key
-const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
-const SHOPIFY_API_PASSWORD = process.env.SHOPIFY_API_PASSWORD;
-
 // Helper function to log errors
 const logError = (message, details) => {
   console.error(`ERROR: ${message}`);
   if (details) console.error(details);
 };
 
-// Create product in Shopify
+// Shopify Store Domain and API Key
+const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+const SHOPIFY_API_PASSWORD = process.env.SHOPIFY_API_PASSWORD;
+
+// Function to create product in Shopify
 async function createShopifyProduct(product) {
   console.log(`Creating product: ${product.title}`);
 
@@ -180,3 +181,20 @@ async function syncProducts() {
 
 // Start the sync
 syncProducts().catch(logError);
+
+// Export the handler for Netlify
+export const handler = async (event, context) => {
+  try {
+    await syncProducts();
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ message: "Sync completed successfully" }),
+    };
+  } catch (error) {
+    console.error('Error during sync', error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: "Error during sync", error: error.message }),
+    };
+  }
+};
