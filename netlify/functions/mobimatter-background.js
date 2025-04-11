@@ -9,6 +9,10 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
+const getCountryName = (code) => {
+  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+};
+
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -96,7 +100,9 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const countriesText = (product.countries || []).map(getCountryDisplay).join(", ");
+
+        const countryNames = (product.countries || []).map(getCountryName);
+        const countriesText = countryNames.join(", ");
         const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
           ? "weeks"
           : details.PLAN_VALIDITY?.toLowerCase().includes("month")
@@ -114,8 +120,8 @@ exports.handler = async () => {
           {
             namespace: "esim",
             key: "countries",
-            type: "multi_line_text_field",
-            value: countriesText,
+            type: "list.single_line_text_field",
+            value: countryNames,
           },
           {
             namespace: "esim",
@@ -161,7 +167,7 @@ exports.handler = async () => {
 
         const tags = [
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
-          ...(product.countries || []).map(code => getCountryDisplay(code).replace(/^[^\s]+\s/, "")),
+          ...countryNames,
           details.FIVEG === "1" ? "5G" : "4G",
           validityValue,
           ...(details.SPEED ? [details.SPEED] : []),
