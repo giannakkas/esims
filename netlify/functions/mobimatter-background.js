@@ -1,6 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -24,9 +23,7 @@ const buildDescription = (product, details) => {
     .join("");
 
   const rawValidity = details.PLAN_VALIDITY || "?";
-  const validityNumber = parseInt(rawValidity);
-  const validityUnit = validityNumber >= 30 ? "days" : "days";
-
+  const validityUnit = "days";
   const callMinutes = details.CALL_MINUTES || details.PLAN_CALL_MINUTES;
   const smsCount = details.SMS_COUNT || details.PLAN_SMS_COUNT;
 
@@ -46,7 +43,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${validityUnit}</p>
+      <p><strong>Validity:</strong> ${rawValidity} ${validityUnit}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -107,8 +104,6 @@ exports.handler = async () => {
 
       try {
         const details = getProductDetails(product);
-        const validityNumber = parseInt(details.PLAN_VALIDITY || "?");
-        const validityUnit = validityNumber >= 30 ? "days" : "days";
         const callMinutes = details.CALL_MINUTES || details.PLAN_CALL_MINUTES;
         const smsCount = details.SMS_COUNT || details.PLAN_SMS_COUNT;
 
@@ -153,7 +148,7 @@ exports.handler = async () => {
             {
               namespace: "esim",
               key: "validity",
-              value: `${details.PLAN_VALIDITY || "?"} ${validityUnit}`,
+              value: `${details.PLAN_VALIDITY || "?"} days`,
               type: "single_line_text_field",
             },
             {
