@@ -1,5 +1,6 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -19,8 +20,14 @@ const getProductDetails = (product) => {
 
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
+
+  const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+    ? "weeks"
+    : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+    ? "months"
+    : "days";
 
   return `
     <div class="esim-description">
@@ -30,12 +37,12 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${details.PLAN_VALIDITY?.toLowerCase().includes("week") ? "weeks" : details.PLAN_VALIDITY?.toLowerCase().includes("month") ? "months" : "days"}</p>
+      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${validityUnit}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
-      ${details.HAS_CALLS === "1" ? `<p><strong>Calls:</strong> ${details.CALL_MINUTES || "Available"}</p>` : "<p><strong>Calls:</strong> Not available</p>`}
-      ${details.HAS_SMS === "1" ? `<p><strong>SMS:</strong> ${details.SMS_COUNT || "Available"}</p>` : "<p><strong>SMS:</strong> Not available</p>`}
+      <p><strong>Calls:</strong> ${details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available"}</p>
+      <p><strong>SMS:</strong> ${details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available"}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
   `;
@@ -94,7 +101,12 @@ exports.handler = async () => {
           .map(getCountryDisplay)
           .join("\n");
 
-        const validityValue = `${details.PLAN_VALIDITY || ""} ${details.PLAN_VALIDITY?.toLowerCase().includes("week") ? "weeks" : details.PLAN_VALIDITY?.toLowerCase().includes("month") ? "months" : "days"}`.trim();
+        const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+          ? "weeks"
+          : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+          ? "months"
+          : "days";
+        const validityValue = `${details.PLAN_VALIDITY || ""} ${validityUnit}`.trim();
 
         const metafields = [
           {
@@ -131,20 +143,24 @@ exports.handler = async () => {
             namespace: "esim",
             key: "calls",
             type: "single_line_text_field",
-            value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available",
+            value: details.HAS_CALLS === "1"
+              ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available")
+              : "Not available",
           },
           {
             namespace: "esim",
             key: "sms",
             type: "single_line_text_field",
-            value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available",
+            value: details.HAS_SMS === "1"
+              ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available")
+              : "Not available",
           },
           {
             namespace: "esim",
             key: "provider_logo",
             type: "single_line_text_field",
             value: product.providerLogo || "",
-          }
+          },
         ];
 
         const input = {
@@ -159,7 +175,7 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
-          metafields
+          metafields,
         };
 
         const mutation = `
@@ -229,13 +245,21 @@ exports.handler = async () => {
     console.log("Sync complete. Created:", created.length, "Skipped:", skipped.length, "Failed:", failed.length);
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`, created, skipped, failed }),
+      body: JSON.stringify({
+        message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`,
+        created,
+        skipped,
+        failed,
+      }),
     };
   } catch (err) {
     console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
+      body: JSON.stringify({
+        error: "Mobimatter fetch or Shopify sync failed",
+        message: err.message,
+      }),
     };
   }
 };
