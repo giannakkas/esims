@@ -1,21 +1,9 @@
-// Refactor to use async function for dynamic import
-async function loadModules() {
-  try {
-    const fetch = (await import('node-fetch')).default;
-    const { FormData } = await import('formdata-polyfill');
-    return { fetch, FormData };
-  } catch (error) {
-    console.error("Error importing modules:", error);
-    throw error;
-  }
-}
+import fetch from 'node-fetch';  // Directly use node-fetch
+import FormData from 'form-data'; // Use form-data package for FormData functionality
 
 export const handler = async (event, context) => {
   try {
-    // Load the necessary modules dynamically
-    const { fetch, FormData } = await loadModules();
-
-    // Main logic for syncing products here
+    // Main logic for syncing products
     await syncProducts(fetch, FormData);
     return {
       statusCode: 200,
