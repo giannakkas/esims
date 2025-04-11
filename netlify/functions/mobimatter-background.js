@@ -1,10 +1,13 @@
-// Use dynamic import for node-fetch due to ES Module requirements
-let fetch;
-try {
-  fetch = (await import('node-fetch')).default;
-} catch (error) {
-  console.error('Error importing fetch module:', error);
-  throw error;
+// Using dynamic import inside an async function to avoid top-level await
+async function loadFetch() {
+  let fetch;
+  try {
+    fetch = (await import('node-fetch')).default;
+    return fetch;
+  } catch (error) {
+    console.error('Error importing fetch module:', error);
+    throw error;
+  }
 }
 
 // Shopify Store Domain and API Key
@@ -89,6 +92,7 @@ async function createShopifyProduct(product) {
   };
 
   try {
+    const fetch = await loadFetch();
     const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/graphql.json`, {
       method: 'POST',
       headers: {
