@@ -52,6 +52,7 @@ const buildDescription = (product, details) => {
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
       <p><strong>Calls:</strong> ${callText}</p>
       <p><strong>SMS:</strong> ${smsText}</p>
+      <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
   `;
@@ -123,6 +124,13 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
+          variants: [
+            {
+              price: product.retailPrice?.toFixed(2) || "0.00",
+              sku: product.uniqueId,
+              inventory_quantity: 999999,
+            },
+          ],
           metafields: [
             {
               namespace: "esim",
