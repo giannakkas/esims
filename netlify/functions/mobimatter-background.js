@@ -1,4 +1,11 @@
-const fetch = require('node-fetch');
+// Use dynamic import for node-fetch
+let fetch;
+try {
+  fetch = (await import('node-fetch')).default;
+} catch (error) {
+  console.error('Error importing fetch module:', error);
+  throw error;
+}
 
 // Shopify Store Domain and API Key
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
