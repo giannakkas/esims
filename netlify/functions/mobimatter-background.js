@@ -159,28 +159,6 @@ exports.handler = async () => {
           },
         ];
 
-        const input = {
-          title,
-          handle,
-          descriptionHtml: buildDescription(product, details),
-          vendor: product.providerName || "Mobimatter",
-          productType: "eSIM",
-          tags: [
-            details.FIVEG === "1" ? "5G" : "4G",
-            `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
-            ...(product.countries || []).map((c) => `country-${c}`),
-          ],
-          published: true,
-          variants: [
-            {
-              price: (product.retailPrice || 0).toFixed(2),
-              sku: product.uniqueId,
-              inventoryQuantity: 999999,
-            },
-          ],
-          metafields,
-        };
-
         const mutation = `
           mutation productCreate($input: ProductInput!) {
             productCreate(input: $input) {
@@ -195,6 +173,21 @@ exports.handler = async () => {
             }
           }
         `;
+
+        const input = {
+          title,
+          handle,
+          descriptionHtml: buildDescription(product, details),
+          vendor: product.providerName || "Mobimatter",
+          productType: "eSIM",
+          tags: [
+            details.FIVEG === "1" ? "5G" : "4G",
+            `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
+            ...(product.countries || []).map((c) => `country-${c}`),
+          ],
+          published: true,
+          metafields,
+        };
 
         console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
@@ -233,6 +226,40 @@ exports.handler = async () => {
                   "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
                 },
                 body: JSON.stringify({ image: { src: product.providerLogo } }),
+              }
+            );
+          }
+
+          const variantRes = await fetch(
+            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+            }
+          );
+
+          const { variants } = await variantRes.json();
+          const variantId = variants[0]?.id;
+
+          if (variantId) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  variant: {
+                    id: variantId,
+                    price: (product.retailPrice || 0).toFixed(2),
+                    sku: product.uniqueId,
+                    inventory_quantity: 999999,
+                  },
+                }),
               }
             );
           }
