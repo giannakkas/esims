@@ -30,7 +30,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} days</p>
+      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${details.PLAN_VALIDITY?.toLowerCase().includes("week") ? "weeks" : details.PLAN_VALIDITY?.toLowerCase().includes("month") ? "months" : "days"}</p>
       ${details.FIVEG === "1" ? "<p><strong>Network:</strong> 5G Supported</p>" : ""}
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -92,6 +92,8 @@ exports.handler = async () => {
           .map(getCountryDisplay)
           .join("\n");
 
+        const validityValue = `${details.PLAN_VALIDITY || ""} ${details.PLAN_VALIDITY?.toLowerCase().includes("week") ? "weeks" : details.PLAN_VALIDITY?.toLowerCase().includes("month") ? "months" : "days"}`.trim();
+
         const metafields = [
           {
             namespace: "esim",
@@ -115,7 +117,7 @@ exports.handler = async () => {
             namespace: "esim",
             key: "validity",
             type: "single_line_text_field",
-            value: details.PLAN_VALIDITY || "",
+            value: validityValue,
           },
           {
             namespace: "esim",
