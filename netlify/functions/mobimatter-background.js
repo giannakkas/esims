@@ -1,6 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -50,9 +49,7 @@ exports.handler = async () => {
   } = process.env;
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [];
-  const skipped = [];
-  const failed = [];
+  const created = [], skipped = [], failed = [];
 
   try {
     console.log("Fetching from Mobimatter API...");
@@ -71,7 +68,6 @@ exports.handler = async () => {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
-      // 🔍 Check for existing product by handle
       const checkRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
         {
@@ -90,19 +86,29 @@ exports.handler = async () => {
 
       try {
         const details = getProductDetails(product);
+        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
-        const metafields = [];
-        if (details.FIVEG) {
-          metafields.push({
+        const countriesText = (product.countries || [])
+          .map(getCountryDisplay)
+          .join("\n");
+
+        const metafields = [
+          {
             namespace: "esim",
             key: "fiveg",
-            value: details.FIVEG === "1" ? "5G" : "4G",
             type: "single_line_text_field",
-          });
-        }
+            value: details.FIVEG === "1" ? "5G" : "4G",
+          },
+          {
+            namespace: "esim",
+            key: "countries",
+            type: "multi_line_text_field",
+            value: countriesText,
+          }
+        ];
 
         const input = {
-          title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
+          title,
           handle,
           descriptionHtml: buildDescription(product, details),
           vendor: product.providerName || "Mobimatter",
@@ -113,7 +119,7 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
-          metafields,
+          metafields
         };
 
         const mutation = `
@@ -131,7 +137,7 @@ exports.handler = async () => {
           }
         `;
 
-        console.log(`Creating product: ${input.title}`);
+        console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -148,18 +154,17 @@ exports.handler = async () => {
         const userErrors = json?.data?.productCreate?.userErrors;
         const shopifyId = json?.data?.productCreate?.product?.id;
 
-        if (userErrors && userErrors.length) {
-          console.error(`Errors creating product ${input.title}:`, userErrors);
-          failed.push({ title: input.title, reason: userErrors.map((e) => e.message).join(", ") });
+        if (userErrors?.length) {
+          console.error(`Errors creating product ${title}:`, userErrors);
+          failed.push({ title, reason: userErrors.map((e) => e.message).join(", ") });
           continue;
         }
 
         if (shopifyId) {
           const numericId = shopifyId.split("/").pop();
-          console.log(`Created product ${input.title} with ID ${numericId}`);
+          console.log(`Created product ${title} with ID ${numericId}`);
 
           if (product.providerLogo?.startsWith("http")) {
-            console.log(`Uploading provider image: ${product.providerLogo}`);
             await fetch(
               `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
               {
@@ -168,14 +173,12 @@ exports.handler = async () => {
                   "Content-Type": "application/json",
                   "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
                 },
-                body: JSON.stringify({
-                  image: { src: product.providerLogo },
-                }),
+                body: JSON.stringify({ image: { src: product.providerLogo } }),
               }
             );
           }
 
-          created.push(input.title);
+          created.push(title);
         }
       } catch (err) {
         console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
@@ -186,21 +189,13 @@ exports.handler = async () => {
     console.log("Sync complete. Created:", created.length, "Skipped:", skipped.length, "Failed:", failed.length);
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`,
-        created,
-        skipped,
-        failed,
-      }),
+      body: JSON.stringify({ message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`, created, skipped, failed }),
     };
   } catch (err) {
     console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Mobimatter fetch or Shopify sync failed",
-        message: err.message,
-      }),
+      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
     };
   }
 };
