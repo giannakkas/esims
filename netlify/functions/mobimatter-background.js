@@ -10,7 +10,6 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
-// Extract product details (price, title, etc.)
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -19,7 +18,6 @@ const getProductDetails = (product) => {
   return details;
 };
 
-// Build product description
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
@@ -42,27 +40,15 @@ const buildDescription = (product, details) => {
   `;
 };
 
-// Upload File to Shopify (Function)
-const uploadFileToShopify = async (fileUrl) => {
-  const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/files.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-    },
-    body: JSON.stringify({
-      file: {
-        attachment: fileUrl, // Provide the file URL or base64 data
-      }
-    }),
-  });
-
-  const data = await res.json();
-  return data?.file?.url;  // Return the URL of the uploaded file
-};
-
 exports.handler = async () => {
-  const { MOBIMATTER_API_KEY, MOBIMATTER_MERCHANT_ID, SHOPIFY_ADMIN_API_KEY, SHOPIFY_STORE_DOMAIN, SHOPIFY_API_VERSION = "2025-04" } = process.env;
+  const {
+    MOBIMATTER_API_KEY,
+    MOBIMATTER_MERCHANT_ID,
+    SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+    SHOPIFY_API_VERSION = "2025-04",
+  } = process.env;
+
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
   const created = [];
   const skipped = [];
@@ -84,13 +70,18 @@ exports.handler = async () => {
     for (const product of products.slice(0, 30)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
+      console.log(`Checking if product exists: ${handle}`);
+
       // 🔍 Check for existing product by handle
-      const checkRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`, {
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-        },
-      });
+      const checkRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        }
+      );
       const { products: existing } = await checkRes.json();
       if (existing.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
@@ -100,7 +91,6 @@ exports.handler = async () => {
 
       try {
         const details = getProductDetails(product);
-        const logoUrl = await uploadFileToShopify(product.providerLogo);  // Upload logo file
 
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
@@ -112,44 +102,6 @@ exports.handler = async () => {
             details.FIVEG === "1" ? "5G" : "4G",
             `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
             ...(product.countries || []).map((c) => `country-${c}`),
-          ],
-          metafields: [
-            {
-              namespace: "esim",
-              key: "provider_logo",
-              value: logoUrl,  // The file URL from Shopify file upload
-              valueType: "FILE", // Correct metafield type for files
-            },
-            {
-              namespace: "esim",
-              key: "countries",
-              value: product.countries.join(", "),
-              valueType: "STRING",
-            },
-            {
-              namespace: "esim",
-              key: "fiveg",
-              value: product.fiveg ? "Yes" : "No",
-              valueType: "STRING",
-            },
-            {
-              namespace: "esim",
-              key: "topup",
-              value: product.topup ? "Available" : "Not Available",
-              valueType: "STRING",
-            },
-            {
-              namespace: "esim",
-              key: "validity",
-              value: product.validity || "N/A",
-              valueType: "STRING",
-            },
-            {
-              namespace: "esim",
-              key: "data_limit",
-              value: product.dataLimit || "N/A",
-              valueType: "STRING",
-            },
           ],
           published: true,
         };
@@ -169,7 +121,7 @@ exports.handler = async () => {
           }
         `;
 
-        console.log("Creating product:", input.title);
+        console.log(`Creating product: ${input.title}`);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -187,15 +139,72 @@ exports.handler = async () => {
         const shopifyId = json?.data?.productCreate?.product?.id;
 
         if (userErrors && userErrors.length) {
+          console.error(`Errors creating product ${input.title}:`, userErrors);
           failed.push({ title: input.title, reason: userErrors.map((e) => e.message).join(", ") });
           continue;
         }
 
         if (shopifyId) {
+          const numericId = shopifyId.split("/").pop();
+          console.log(`Created product ${input.title} with ID ${numericId}`);
+
+          const variantRes = await fetch(
+            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
+            {
+              method: "GET",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+            }
+          );
+
+          const { variants } = await variantRes.json();
+          const variantId = variants[0]?.id;
+
+          if (variantId) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  variant: {
+                    id: variantId,
+                    price: product.retailPrice?.toFixed(2),
+                    sku: product.uniqueId,
+                    inventory_quantity: 999999,
+                  },
+                }),
+              }
+            );
+          }
+
+          if (product.providerLogo?.startsWith("http")) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  image: {
+                    src: product.providerLogo,
+                  },
+                }),
+              }
+            );
+          }
+
           created.push(input.title);
         }
       } catch (err) {
-        console.error("Error syncing product:", err.message);
+        console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
