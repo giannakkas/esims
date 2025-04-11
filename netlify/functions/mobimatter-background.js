@@ -27,12 +27,15 @@ const buildDescription = (product, details) => {
   const validityNumber = parseInt(rawValidity);
   const validityUnit = validityNumber >= 30 ? "days" : "days";
 
+  const callMinutes = details.CALL_MINUTES || details.PLAN_CALL_MINUTES;
+  const smsCount = details.SMS_COUNT || details.PLAN_SMS_COUNT;
+
   const callText = details.HAS_CALLS === "1"
-    ? (details.CALL_MINUTES ? `📞 ${details.CALL_MINUTES} minutes` : "📞 Available")
+    ? (callMinutes ? `📞 ${callMinutes} minutes` : "📞 Available")
     : "Not available";
 
   const smsText = details.HAS_SMS === "1"
-    ? (details.SMS_COUNT ? `✉️ ${details.SMS_COUNT} SMS` : "✉️ Available")
+    ? (smsCount ? `✉️ ${smsCount} SMS` : "✉️ Available")
     : "Not available";
 
   return `
@@ -105,6 +108,8 @@ exports.handler = async () => {
         const details = getProductDetails(product);
         const validityNumber = parseInt(details.PLAN_VALIDITY || "?");
         const validityUnit = validityNumber >= 30 ? "days" : "days";
+        const callMinutes = details.CALL_MINUTES || details.PLAN_CALL_MINUTES;
+        const smsCount = details.SMS_COUNT || details.PLAN_SMS_COUNT;
 
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
@@ -152,13 +157,23 @@ exports.handler = async () => {
             {
               namespace: "esim",
               key: "calls",
-              value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available",
+              value: details.HAS_CALLS === "1"
+                ? (callMinutes ? `${callMinutes} minutes` : "Available")
+                : "Not available",
               type: "single_line_text_field",
             },
             {
               namespace: "esim",
               key: "sms",
-              value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available",
+              value: details.HAS_SMS === "1"
+                ? (smsCount ? `${smsCount} SMS` : "Available")
+                : "Not available",
+              type: "single_line_text_field",
+            },
+            {
+              namespace: "esim",
+              key: "provider_logo",
+              value: product.providerLogo || "",
               type: "single_line_text_field",
             }
           ],
@@ -207,9 +222,7 @@ exports.handler = async () => {
                   "Content-Type": "application/json",
                   "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
                 },
-                body: JSON.stringify({
-                  image: { src: product.providerLogo },
-                }),
+                body: JSON.stringify({ image: { src: product.providerLogo } }),
               }
             );
           }
