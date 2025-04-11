@@ -1,5 +1,6 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
+// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -68,8 +69,9 @@ exports.handler = async () => {
 
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
-
       console.log(`Checking if product exists: ${handle}`);
+
+      // 🔍 Check for existing product by handle
       const checkRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
         {
@@ -89,6 +91,16 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
 
+        const metafields = [];
+        if (details.FIVEG) {
+          metafields.push({
+            namespace: "esim",
+            key: "fiveg",
+            value: details.FIVEG === "1" ? "5G" : "4G",
+            type: "single_line_text_field",
+          });
+        }
+
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
           handle,
@@ -101,14 +113,7 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
-          metafields: [
-            {
-              namespace: "esim",
-              key: "fiveg",
-              type: "single_line_text_field",
-              value: details.FIVEG === "1" ? "5G" : "4G"
-            }
-          ],
+          metafields,
         };
 
         const mutation = `
@@ -152,9 +157,26 @@ exports.handler = async () => {
         if (shopifyId) {
           const numericId = shopifyId.split("/").pop();
           console.log(`Created product ${input.title} with ID ${numericId}`);
-        }
 
-        created.push(input.title);
+          if (product.providerLogo?.startsWith("http")) {
+            console.log(`Uploading provider image: ${product.providerLogo}`);
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  image: { src: product.providerLogo },
+                }),
+              }
+            );
+          }
+
+          created.push(input.title);
+        }
       } catch (err) {
         console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
