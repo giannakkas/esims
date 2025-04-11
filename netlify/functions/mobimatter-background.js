@@ -102,7 +102,7 @@ exports.handler = async () => {
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
         const countryNames = (product.countries || []).map(getCountryName);
-        const countriesText = countryNames.join(", ");
+        const countriesText = countryNames.join("\n");
         const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
           ? "weeks"
           : details.PLAN_VALIDITY?.toLowerCase().includes("month")
@@ -120,8 +120,8 @@ exports.handler = async () => {
           {
             namespace: "esim",
             key: "countries",
-            type: "list.single_line_text_field",
-            value: countryNames,
+            type: "multi_line_text_field",
+            value: countriesText,
           },
           {
             namespace: "esim",
