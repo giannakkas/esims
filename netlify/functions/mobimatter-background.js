@@ -163,7 +163,10 @@ exports.handler = async () => {
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
           ...(product.countries || []).map(code => getCountryDisplay(code).replace(/^[^\s]+\s/, "")),
           details.FIVEG === "1" ? "5G" : "4G",
-          validityValue
+          validityValue,
+          ...(details.SPEED ? [details.SPEED] : []),
+          ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
+          ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
         ];
 
         const input = {
