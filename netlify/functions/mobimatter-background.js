@@ -9,8 +9,13 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
-const getCountryName = (code) => {
-  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+const getCountryName = (code, withFlag = false) => {
+  const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+  if (!withFlag) return name;
+  const flag = code
+    .toUpperCase()
+    .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
+  return `${flag} ${name || code}`;
 };
 
 const getProductDetails = (product) => {
@@ -101,7 +106,7 @@ exports.handler = async () => {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
-        const countryNames = (product.countries || []).map(getCountryName);
+        const countryNames = (product.countries || []).map((c) => getCountryName(c, true));
         const countriesText = countryNames.join("\n");
         const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
           ? "weeks"
@@ -120,7 +125,7 @@ exports.handler = async () => {
           {
             namespace: "esim",
             key: "countries",
-            type: "single_line_text_field",
+            type: "multi_line_text_field",
             value: countriesText,
           },
           {
