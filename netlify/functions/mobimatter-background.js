@@ -67,7 +67,7 @@ exports.handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 5)) {
+    for (const product of products.slice(0, 30)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       console.log(`Checking if product exists: ${handle}`);
@@ -104,6 +104,44 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
+          metafields: [
+            {
+              namespace: "esim",
+              key: "provider_logo",
+              value: product.providerLogo || "",
+              valueType: "file",  // For file type
+            },
+            {
+              namespace: "esim",
+              key: "countries",
+              value: product.countries.join("\n"),
+              valueType: "multi_line_text_field", // For multi-line text field
+            },
+            {
+              namespace: "esim",
+              key: "fiveg",
+              value: details.FIVEG === "1" ? "5G" : "4G",
+              valueType: "single_line_text_field", // For single line text
+            },
+            {
+              namespace: "esim",
+              key: "topup",
+              value: details.TOPUP === "1" ? "Available" : "Not Available",
+              valueType: "single_line_text_field",
+            },
+            {
+              namespace: "esim",
+              key: "validity",
+              value: details.PLAN_VALIDITY || "0",
+              valueType: "single_line_text_field",
+            },
+            {
+              namespace: "esim",
+              key: "data_limit",
+              value: `${details.PLAN_DATA_LIMIT || "0"} ${details.PLAN_DATA_UNIT || "GB"}`,
+              valueType: "single_line_text_field",
+            },
+          ],
         };
 
         const mutation = `
