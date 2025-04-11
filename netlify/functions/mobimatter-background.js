@@ -73,7 +73,7 @@ exports.handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 50)) {
+    for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
@@ -96,7 +96,7 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const countriesText = (product.countries || []).map(getCountryDisplay).join("\n");
+        const countriesText = (product.countries || []).map(getCountryDisplay).join(", ");
         const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
           ? "weeks"
           : details.PLAN_VALIDITY?.toLowerCase().includes("month")
@@ -159,6 +159,24 @@ exports.handler = async () => {
           },
         ];
 
+        const tags = [
+          `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
+          ...(product.countries || []).map(code => getCountryDisplay(code).replace(/^[^\s]+\s/, "")),
+          details.FIVEG === "1" ? "5G" : "4G",
+          validityValue
+        ];
+
+        const input = {
+          title,
+          handle,
+          descriptionHtml: buildDescription(product, details),
+          vendor: product.providerName || "Mobimatter",
+          productType: "eSIM",
+          tags,
+          published: true,
+          metafields,
+        };
+
         const mutation = `
           mutation productCreate($input: ProductInput!) {
             productCreate(input: $input) {
@@ -173,21 +191,6 @@ exports.handler = async () => {
             }
           }
         `;
-
-        const input = {
-          title,
-          handle,
-          descriptionHtml: buildDescription(product, details),
-          vendor: product.providerName || "Mobimatter",
-          productType: "eSIM",
-          tags: [
-            details.FIVEG === "1" ? "5G" : "4G",
-            `data-${details.PLAN_DATA_LIMIT || "unlimited"}${details.PLAN_DATA_UNIT || "GB"}`,
-            ...(product.countries || []).map((c) => `country-${c}`),
-          ],
-          published: true,
-          metafields,
-        };
 
         console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
