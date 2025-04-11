@@ -19,7 +19,7 @@ const getProductDetails = (product) => {
 
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
     .join("");
 
   return `
@@ -104,6 +104,24 @@ exports.handler = async () => {
             key: "countries",
             type: "multi_line_text_field",
             value: countriesText,
+          },
+          {
+            namespace: "esim",
+            key: "topup",
+            type: "single_line_text_field",
+            value: details.TOPUP === "1" ? "Available" : "Not Available",
+          },
+          {
+            namespace: "esim",
+            key: "validity",
+            type: "single_line_text_field",
+            value: details.PLAN_VALIDITY || "",
+          },
+          {
+            namespace: "esim",
+            key: "data_limit",
+            type: "single_line_text_field",
+            value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
           }
         ];
 
