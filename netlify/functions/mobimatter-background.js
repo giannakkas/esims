@@ -23,7 +23,7 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  return ` 
+  return `
     <div class="esim-description">
       <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
       <div class="countries-section">
@@ -63,11 +63,17 @@ exports.handler = async () => {
       },
     });
 
-    if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    if (!response.ok) {
+      console.error(`Failed to fetch from Mobimatter API: ${response.status}`);
+      throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    }
+
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 5)) {
+      console.log(`Processing product: ${product.productFamilyName}`);
+
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       // 🔍 Check for existing product by handle
@@ -82,13 +88,14 @@ exports.handler = async () => {
       );
       const { products: existing } = await checkRes.json();
       if (existing.length > 0) {
-        console.log(`Skipping duplicate by handle: ${handle}`);
+        console.log(`Skipping duplicate product: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
       }
 
       try {
         const details = getProductDetails(product);
+        console.log(`Product details: ${JSON.stringify(details)}`);
 
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
@@ -106,7 +113,7 @@ exports.handler = async () => {
             {
               namespace: "esim",
               key: "provider_logo",
-              value: product.providerLogo || "", // assuming providerLogo is a URL
+              value: product.providerLogo || "",
               valueType: "file",
             },
             {
@@ -142,6 +149,7 @@ exports.handler = async () => {
           ],
         };
 
+        console.log(`Creating product with handle: ${handle}`);
         const mutation = `
           mutation productCreate($input: ProductInput!) {
             productCreate(input: $input) {
@@ -157,7 +165,6 @@ exports.handler = async () => {
           }
         `;
 
-        console.log("Creating product:", input.title);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -171,19 +178,23 @@ exports.handler = async () => {
         );
 
         const json = await shopifyRes.json();
+        console.log(`Shopify response: ${JSON.stringify(json)}`);
+
         const userErrors = json?.data?.productCreate?.userErrors;
         const shopifyId = json?.data?.productCreate?.product?.id;
 
         if (userErrors && userErrors.length) {
+          console.error(`Errors creating product ${input.title}: ${JSON.stringify(userErrors)}`);
           failed.push({ title: input.title, reason: userErrors.map((e) => e.message).join(", ") });
           continue;
         }
 
         if (shopifyId) {
+          console.log(`Product created successfully: ${input.title} with ID: ${shopifyId}`);
           created.push(input.title);
         }
       } catch (err) {
-        console.error("Error syncing product:", err.message);
+        console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}: ${err.message}`);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
