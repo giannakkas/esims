@@ -114,13 +114,13 @@ exports.handler = async () => {
             {
               namespace: "esim",
               key: "fiveg",
-              value: details.FIVEG === "1" ? "5G" : "4G",
+              value: details.FIVEG === "1" ? "📶 5G" : "📱 4G",
               type: "single_line_text_field",
             },
             {
               namespace: "esim",
               key: "countries",
-              value: (product.countries || []).join(", "),
+              value: (product.countries || []).map(getCountryDisplay).join(", "),
               type: "multi_line_text_field",
             },
             {
@@ -188,6 +188,24 @@ exports.handler = async () => {
         }
 
         if (shopifyId) {
+          const numericId = shopifyId.split("/").pop();
+
+          if (product.providerLogo?.startsWith("http")) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  image: { src: product.providerLogo },
+                }),
+              }
+            );
+          }
+
           created.push(input.title);
         }
       } catch (err) {
