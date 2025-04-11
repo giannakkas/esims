@@ -124,12 +124,6 @@ exports.handler = async () => {
             key: "data_limit",
             type: "single_line_text_field",
             value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
-          },
-          {
-            namespace: "esim",
-            key: "provider_logo",
-            type: "file_reference",
-            value: product.providerLogo || "",
           }
         ];
 
