@@ -120,7 +120,7 @@ exports.handler = async () => {
           {
             namespace: "esim",
             key: "countries",
-            type: "multi_line_text_field",
+            type: "single_line_text_field",
             value: countriesText,
           },
           {
