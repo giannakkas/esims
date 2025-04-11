@@ -173,7 +173,7 @@ exports.handler = async () => {
           published: true,
           variants: [
             {
-              price: product.retailPrice?.toFixed(2) || "0.00",
+              price: (product.retailPrice || 0).toFixed(2),
               sku: product.uniqueId,
               inventoryQuantity: 999999,
             },
