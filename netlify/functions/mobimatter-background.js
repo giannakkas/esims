@@ -34,6 +34,8 @@ const buildDescription = (product, details) => {
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
+      ${details.HAS_CALLS === "1" ? `<p><strong>Calls:</strong> ${details.CALL_MINUTES || "Available"}</p>` : "<p><strong>Calls:</strong> Not available</p>`}
+      ${details.HAS_SMS === "1" ? `<p><strong>SMS:</strong> ${details.SMS_COUNT || "Available"}</p>` : "<p><strong>SMS:</strong> Not available</p>`}
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
   `;
@@ -99,7 +101,7 @@ exports.handler = async () => {
             namespace: "esim",
             key: "fiveg",
             type: "single_line_text_field",
-            value: details.FIVEG === "1" ? "📶 5G" : "📡 4G",
+            value: details.FIVEG === "1" ? "📶 5G" : "📱 4G",
           },
           {
             namespace: "esim",
@@ -124,6 +126,18 @@ exports.handler = async () => {
             key: "data_limit",
             type: "single_line_text_field",
             value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
+          },
+          {
+            namespace: "esim",
+            key: "calls",
+            type: "single_line_text_field",
+            value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available",
+          },
+          {
+            namespace: "esim",
+            key: "sms",
+            type: "single_line_text_field",
+            value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available",
           },
           {
             namespace: "esim",
