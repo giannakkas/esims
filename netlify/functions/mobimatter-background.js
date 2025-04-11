@@ -31,7 +31,7 @@ const buildDescription = (product, details) => {
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
       <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${details.PLAN_VALIDITY?.toLowerCase().includes("week") ? "weeks" : details.PLAN_VALIDITY?.toLowerCase().includes("month") ? "months" : "days"}</p>
-      <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📡 4G Supported"}</p>
+      <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
@@ -124,6 +124,12 @@ exports.handler = async () => {
             key: "data_limit",
             type: "single_line_text_field",
             value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
+          },
+          {
+            namespace: "esim",
+            key: "provider_logo",
+            type: "single_line_text_field",
+            value: product.providerLogo || "",
           }
         ];
 
