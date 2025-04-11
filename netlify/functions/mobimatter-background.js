@@ -1,4 +1,4 @@
-// Use dynamic import for node-fetch
+// Use dynamic import for node-fetch due to ES Module requirements
 let fetch;
 try {
   fetch = (await import('node-fetch')).default;
