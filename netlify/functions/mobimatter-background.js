@@ -1,22 +1,22 @@
-// Use dynamic imports for the fetch library to prevent issues
-let fetch;
-
-(async () => {
+// Refactor to use async function for dynamic import
+async function loadModules() {
   try {
-    fetch = (await import('node-fetch')).default; // Dynamically import node-fetch
+    const fetch = (await import('node-fetch')).default;
+    const { FormData } = await import('formdata-polyfill');
+    return { fetch, FormData };
   } catch (error) {
-    console.error('Error importing fetch module:', error);
+    console.error("Error importing modules:", error);
+    throw error;
   }
-})();
+}
 
-// Ensure other necessary modules are imported correctly
-const { FormData } = await import('formdata-polyfill'); // Dynamically import FormData
-
-// Define the handler to interact with Shopify and Mobimatter API
 export const handler = async (event, context) => {
   try {
+    // Load the necessary modules dynamically
+    const { fetch, FormData } = await loadModules();
+
     // Main logic for syncing products here
-    await syncProducts();
+    await syncProducts(fetch, FormData);
     return {
       statusCode: 200,
       body: JSON.stringify({ message: "Sync completed successfully" }),
@@ -31,8 +31,8 @@ export const handler = async (event, context) => {
 };
 
 // Sync products from Mobimatter API to Shopify
-async function syncProducts() {
-  const products = await fetchMobimatterProducts();
+async function syncProducts(fetch, FormData) {
+  const products = await fetchMobimatterProducts(fetch);
   let createdCount = 0;
 
   // Process only 5 products for now
@@ -68,7 +68,7 @@ async function syncProducts() {
         PLAN_DATA_UNIT: product.PLAN_DATA_UNIT,
       };
 
-      await createShopifyProduct(productDetails);
+      await createShopifyProduct(fetch, productDetails);
       createdCount++;
     } catch (error) {
       console.error(`Error processing product: ${product.PLAN_TITLE}`, error);
@@ -79,7 +79,7 @@ async function syncProducts() {
 }
 
 // Fetch products from Mobimatter API
-async function fetchMobimatterProducts() {
+async function fetchMobimatterProducts(fetch) {
   console.log('Fetching from Mobimatter API...');
   const mobimatterProducts = [];  // Replace with actual fetching logic
   console.log(`Fetched ${mobimatterProducts.length} products from Mobimatter API.`);
@@ -87,7 +87,7 @@ async function fetchMobimatterProducts() {
 }
 
 // Function to create products in Shopify
-async function createShopifyProduct(product) {
+async function createShopifyProduct(fetch, product) {
   console.log(`Creating product: ${product.title}`);
 
   const metafields = [
@@ -157,7 +157,6 @@ async function createShopifyProduct(product) {
   };
 
   try {
-    const fetch = await loadFetch();
     const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/graphql.json`, {
       method: 'POST',
       headers: {
