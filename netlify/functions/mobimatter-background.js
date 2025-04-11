@@ -23,11 +23,9 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
     .join("");
 
-  const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
-    ? "weeks"
-    : details.PLAN_VALIDITY?.toLowerCase().includes("month")
-    ? "months"
-    : "days";
+  const rawValidity = details.PLAN_VALIDITY || "?";
+  const validityNumber = parseInt(rawValidity);
+  const validityUnit = validityNumber >= 30 ? "days" : "days";
 
   return `
     <div class="esim-description">
@@ -97,6 +95,8 @@ exports.handler = async () => {
 
       try {
         const details = getProductDetails(product);
+        const validityNumber = parseInt(details.PLAN_VALIDITY || "?");
+        const validityUnit = validityNumber >= 30 ? "days" : "days";
 
         const input = {
           title: details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM",
