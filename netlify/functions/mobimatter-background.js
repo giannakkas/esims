@@ -1,9 +1,9 @@
-import fetch from 'node-fetch';  // Directly use node-fetch
-import FormData from 'form-data'; // Use form-data package for FormData functionality
+import fetch from 'node-fetch';  // Using node-fetch directly
+import FormData from 'form-data'; // Using form-data for creating form data
 
 export const handler = async (event, context) => {
   try {
-    // Main logic for syncing products
+    // Sync products logic
     await syncProducts(fetch, FormData);
     return {
       statusCode: 200,
@@ -18,12 +18,12 @@ export const handler = async (event, context) => {
   }
 };
 
-// Sync products from Mobimatter API to Shopify
+// Sync products from Mobimatter to Shopify
 async function syncProducts(fetch, FormData) {
   const products = await fetchMobimatterProducts(fetch);
   let createdCount = 0;
 
-  // Process only 5 products for now
+  // Limiting to only process 5 products for now
   const productsToSync = products.slice(0, 5);
 
   for (const product of productsToSync) {
@@ -69,7 +69,7 @@ async function syncProducts(fetch, FormData) {
 // Fetch products from Mobimatter API
 async function fetchMobimatterProducts(fetch) {
   console.log('Fetching from Mobimatter API...');
-  const mobimatterProducts = [];  // Replace with actual fetching logic
+  const mobimatterProducts = [];  // Replace with actual API call to fetch products
   console.log(`Fetched ${mobimatterProducts.length} products from Mobimatter API.`);
   return mobimatterProducts;
 }
@@ -147,26 +147,3 @@ async function createShopifyProduct(fetch, product) {
   try {
     const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/graphql.json`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Storefront-Access-Token': SHOPIFY_API_PASSWORD,
-      },
-      body: JSON.stringify(productData),
-    });
-
-    const data = await response.json();
-    if (data.errors) {
-      console.error('Shopify product creation failed:', data.errors);
-      return;
-    }
-
-    if (data.data.productCreate.userErrors.length > 0) {
-      console.error('Shopify product creation failed:', data.data.productCreate.userErrors);
-      return;
-    }
-
-    console.log(`Product created: ${product.title}`);
-  } catch (error) {
-    console.error('Error creating product in Shopify:', error);
-  }
-}
