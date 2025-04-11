@@ -1,6 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// 🌍 Generate flags + country names for all ISO codes
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
   const flag = code
@@ -20,7 +19,7 @@ const getProductDetails = (product) => {
 
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
     .join("");
 
   const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
@@ -43,6 +42,7 @@ const buildDescription = (product, details) => {
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
       <p><strong>Calls:</strong> ${details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available"}</p>
       <p><strong>SMS:</strong> ${details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available"}</p>
+      <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
   `;
@@ -96,11 +96,7 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-
-        const countriesText = (product.countries || [])
-          .map(getCountryDisplay)
-          .join("\n");
-
+        const countriesText = (product.countries || []).map(getCountryDisplay).join("\n");
         const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
           ? "weeks"
           : details.PLAN_VALIDITY?.toLowerCase().includes("month")
@@ -175,6 +171,13 @@ exports.handler = async () => {
             ...(product.countries || []).map((c) => `country-${c}`),
           ],
           published: true,
+          variants: [
+            {
+              price: product.retailPrice?.toFixed(2) || "0.00",
+              sku: product.uniqueId,
+              inventoryQuantity: 999999,
+            },
+          ],
           metafields,
         };
 
@@ -256,10 +259,7 @@ exports.handler = async () => {
     console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Mobimatter fetch or Shopify sync failed",
-        message: err.message,
-      }),
+      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
     };
   }
 };
