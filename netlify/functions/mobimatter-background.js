@@ -85,19 +85,36 @@ exports.handler = async () => {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
-      const checkRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
+      // ✅ New handle check using GraphQL
+      const handleQuery = `
         {
+          products(first: 1, query: "handle:${handle}") {
+            edges {
+              node {
+                id
+                title
+              }
+            }
+          }
+        }
+      `;
+
+      const handleCheckRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
+          body: JSON.stringify({ query: handleQuery }),
         }
       );
-      const checkJson = await checkRes.json();
-      const existing = checkJson?.products || [];
 
-      if (existing.length > 0) {
+      const handleCheckJson = await handleCheckRes.json();
+      const existingEdges = handleCheckJson?.data?.products?.edges || [];
+
+      if (existingEdges.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
@@ -117,58 +134,14 @@ exports.handler = async () => {
         const validityValue = `${details.PLAN_VALIDITY || ""} ${validityUnit}`.trim();
 
         const metafields = [
-          {
-            namespace: "esim",
-            key: "fiveg",
-            type: "single_line_text_field",
-            value: details.FIVEG === "1" ? "📶 5G" : "📱 4G",
-          },
-          {
-            namespace: "esim",
-            key: "countries",
-            type: "single_line_text_field",
-            value: countriesText,
-          },
-          {
-            namespace: "esim",
-            key: "topup",
-            type: "single_line_text_field",
-            value: details.TOPUP === "1" ? "Available" : "Not Available",
-          },
-          {
-            namespace: "esim",
-            key: "validity",
-            type: "single_line_text_field",
-            value: validityValue,
-          },
-          {
-            namespace: "esim",
-            key: "data_limit",
-            type: "single_line_text_field",
-            value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
-          },
-          {
-            namespace: "esim",
-            key: "calls",
-            type: "single_line_text_field",
-            value: details.HAS_CALLS === "1"
-              ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available")
-              : "Not available",
-          },
-          {
-            namespace: "esim",
-            key: "sms",
-            type: "single_line_text_field",
-            value: details.HAS_SMS === "1"
-              ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available")
-              : "Not available",
-          },
-          {
-            namespace: "esim",
-            key: "provider_logo",
-            type: "single_line_text_field",
-            value: product.providerLogo || "",
-          },
+          { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+          { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
+          { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
+          { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityValue },
+          { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+          { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
+          { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
+          { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
         ];
 
         const tags = [
@@ -234,6 +207,7 @@ exports.handler = async () => {
           const numericId = shopifyId.split("/").pop();
           console.log(`Created product ${title} with ID ${numericId}`);
 
+          // Upload provider logo as image
           if (product.providerLogo?.startsWith("http")) {
             await fetch(
               `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
@@ -248,6 +222,7 @@ exports.handler = async () => {
             );
           }
 
+          // Update variant pricing
           const variantRes = await fetch(
             `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
             {
