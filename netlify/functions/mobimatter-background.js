@@ -9,10 +9,6 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
-const getCountryName = (code) => {
-  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
-};
-
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -74,7 +70,15 @@ exports.handler = async () => {
     });
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
-    const { result: products } = await response.json();
+
+    const data = await response.json();
+    const products = data?.result;
+
+    if (!Array.isArray(products)) {
+      console.error("Mobimatter API response is invalid:", data);
+      throw new Error("Mobimatter API did not return a valid products array");
+    }
+
     console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 3000)) {
@@ -90,7 +94,9 @@ exports.handler = async () => {
           },
         }
       );
-      const { products: existing } = await checkRes.json();
+      const checkJson = await checkRes.json();
+      const existing = checkJson?.products || [];
+
       if (existing.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
