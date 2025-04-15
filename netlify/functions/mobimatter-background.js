@@ -1,4 +1,4 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+import fetch from "node-fetch";
 
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
@@ -62,7 +62,7 @@ const buildDescription = (product, details) => {
   `;
 };
 
-export const handler = async () => {
+exports.handler = async () => {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
@@ -87,7 +87,7 @@ export const handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 5)) {
+    for (const product of products.slice(0, 30)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
@@ -100,7 +100,6 @@ export const handler = async () => {
           },
         }
       );
-
       const { products: existing } = await checkRes.json();
       if (existing.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
@@ -111,8 +110,9 @@ export const handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const normalizedValidity = normalizeValidity(details.PLAN_VALIDITY);
+        const validityValue = normalizeValidity(details.PLAN_VALIDITY);
         const countryNames = (product.countries || []).map(getCountryName);
+        const countriesText = countryNames.join(", ");
 
         const metafields = [
           {
@@ -125,7 +125,7 @@ export const handler = async () => {
             namespace: "esim",
             key: "countries",
             type: "single_line_text_field",
-            value: countryNames.join(", "),
+            value: countriesText,
           },
           {
             namespace: "esim",
@@ -137,7 +137,7 @@ export const handler = async () => {
             namespace: "esim",
             key: "validity",
             type: "single_line_text_field",
-            value: normalizedValidity,
+            value: validityValue,
           },
           {
             namespace: "esim",
@@ -172,8 +172,8 @@ export const handler = async () => {
         const tags = [
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
           ...countryNames,
+          validityValue,
           details.FIVEG === "1" ? "5G" : "4G",
-          normalizedValidity,
           ...(details.SPEED ? [details.SPEED] : []),
           ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
           ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
@@ -193,12 +193,19 @@ export const handler = async () => {
         const mutation = `
           mutation productCreate($input: ProductInput!) {
             productCreate(input: $input) {
-              product { id title }
-              userErrors { field message }
+              product {
+                id
+                title
+              }
+              userErrors {
+                field
+                message
+              }
             }
           }
         `;
 
+        console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
