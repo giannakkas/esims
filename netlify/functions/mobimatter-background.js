@@ -22,7 +22,6 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  // ✅ Convert hours to days
   const rawValidity = details.PLAN_VALIDITY || "";
   const validityInDays = /^\d+$/.test(rawValidity)
     ? `${parseInt(rawValidity) / 24} days`
@@ -58,7 +57,7 @@ exports.handler = async () => {
   } = process.env;
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [], skipped = [], failed = [];
+  const created = [], skipped = [], failed = [], deleted = [];
 
   try {
     console.log("Fetching from Mobimatter API...");
@@ -70,7 +69,6 @@ exports.handler = async () => {
     });
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
-
     const data = await response.json();
     const products = data?.result;
 
@@ -79,12 +77,97 @@ exports.handler = async () => {
       throw new Error("Mobimatter API did not return a valid products array");
     }
 
-    console.log(`Fetched ${products.length} products`);
+    const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
 
-    for (const product of products.slice(0, 100)) {
+    // 🔥 Step 1: Clean up old Shopify products
+    console.log("Checking for products to delete...");
+    let hasNextPage = true;
+    let cursor = null;
+
+    while (hasNextPage) {
+      const query = `
+        {
+          products(first: 50, ${cursor ? `after: "${cursor}",` : ""} query: "handle:mobimatter-") {
+            pageInfo {
+              hasNextPage
+            }
+            edges {
+              cursor
+              node {
+                id
+                title
+                handle
+              }
+            }
+          }
+        }
+      `;
+
+      const shopifyRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({ query }),
+        }
+      );
+
+      const json = await shopifyRes.json();
+      const edges = json?.data?.products?.edges || [];
+
+      for (const edge of edges) {
+        const handle = edge.node.handle;
+        const id = edge.node.id;
+        const title = edge.node.title;
+
+        if (!mobimatterHandles.has(handle)) {
+          // Not found in Mobimatter, delete it
+          console.log(`🗑️ Deleting old Shopify product: ${title}`);
+          const deleteMutation = `
+            mutation {
+              productDelete(input: { id: "${id}" }) {
+                deletedProductId
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `;
+
+          const deleteRes = await fetch(
+            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+              body: JSON.stringify({ query: deleteMutation }),
+            }
+          );
+
+          const deleteJson = await deleteRes.json();
+          const errors = deleteJson?.data?.productDelete?.userErrors || [];
+
+          if (errors.length) {
+            console.error(`Failed to delete ${title}:`, errors);
+          } else {
+            deleted.push(title);
+          }
+        }
+      }
+
+      hasNextPage = json?.data?.products?.pageInfo?.hasNextPage;
+      cursor = edges.length ? edges[edges.length - 1].cursor : null;
+    }
+
+    // 🔁 Step 2: Create or skip products
+    for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
-      console.log(`Checking if product exists: ${handle}`);
-
       const handleQuery = `
         {
           products(first: 1, query: "handle:${handle}") {
@@ -114,7 +197,6 @@ exports.handler = async () => {
       const existingEdges = handleCheckJson?.data?.products?.edges || [];
 
       if (existingEdges.length > 0) {
-        console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
       }
@@ -123,7 +205,6 @@ exports.handler = async () => {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
-        // ✅ Convert hours to days for metafield
         const rawValidity = details.PLAN_VALIDITY || "";
         const validityInDays = /^\d+$/.test(rawValidity)
           ? `${parseInt(rawValidity) / 24} days`
@@ -167,14 +248,8 @@ exports.handler = async () => {
         const mutation = `
           mutation productCreate($input: ProductInput!) {
             productCreate(input: $input) {
-              product {
-                id
-                title
-              }
-              userErrors {
-                field
-                message
-              }
+              product { id title }
+              userErrors { field message }
             }
           }
         `;
@@ -197,78 +272,22 @@ exports.handler = async () => {
 
         if (userErrors?.length) {
           console.error(`Errors creating product ${title}:`, userErrors);
-          failed.push({ title, reason: userErrors.map((e) => e.message).join(", ") });
+          failed.push({ title, reason: userErrors.map(e => e.message).join(", ") });
           continue;
         }
 
-        if (shopifyId) {
-          const numericId = shopifyId.split("/").pop();
-          console.log(`Created product ${title} with ID ${numericId}`);
-
-          if (product.providerLogo?.startsWith("http")) {
-            await fetch(
-              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-                },
-                body: JSON.stringify({ image: { src: product.providerLogo } }),
-              }
-            );
-          }
-
-          const variantRes = await fetch(
-            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
-            {
-              headers: {
-                "Content-Type": "application/json",
-                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-              },
-            }
-          );
-
-          const { variants } = await variantRes.json();
-          const variantId = variants[0]?.id;
-
-          if (variantId) {
-            await fetch(
-              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
-              {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-                },
-                body: JSON.stringify({
-                  variant: {
-                    id: variantId,
-                    price: (product.retailPrice || 0).toFixed(2),
-                    sku: product.uniqueId,
-                    inventory_quantity: 999999,
-                  },
-                }),
-              }
-            );
-          }
-
-          created.push(title);
-        }
+        if (shopifyId) created.push(title);
       } catch (err) {
-        console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
+        console.error(`Error syncing product:`, err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
 
-    console.log("Sync complete. Created:", created.length, "Skipped:", skipped.length, "Failed:", failed.length);
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`,
-        created,
-        skipped,
-        failed,
+        message: `Created ${created.length}, Skipped ${skipped.length}, Deleted ${deleted.length}, Failed ${failed.length}`,
+        created, skipped, deleted, failed,
       }),
     };
   } catch (err) {
