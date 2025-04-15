@@ -55,12 +55,21 @@ exports.handler = async (event) => {
       }),
     });
 
-    const createData = await createRes.json();
+    const createText = await createRes.text();
+    console.log("   → Mobimatter raw response:", createText);
+
+    let createData;
+    try {
+      createData = JSON.parse(createText);
+    } catch (jsonErr) {
+      console.error("❌ Mobimatter create order response not valid JSON. Raw text:", createText);
+      throw new Error("Mobimatter create order response is not valid JSON");
+    }
+
     const mobimatterOrderId = createData?.result?.orderId;
 
-    console.log("   → Mobimatter create response:", JSON.stringify(createData, null, 2));
-
     if (!mobimatterOrderId) {
+      console.error("❌ Mobimatter did not return a valid orderId.");
       throw new Error("Failed to create Mobimatter order. No orderId returned.");
     }
 
@@ -78,8 +87,8 @@ exports.handler = async (event) => {
       body: JSON.stringify({ orderId: mobimatterOrderId }),
     });
 
-    const completeJson = await completeRes.json();
-    console.log("   → Mobimatter complete response:", JSON.stringify(completeJson, null, 2));
+    const completeText = await completeRes.text();
+    console.log("   → Mobimatter complete response:", completeText);
 
     console.log("✅ Mobimatter order completed.");
 
@@ -92,11 +101,20 @@ exports.handler = async (event) => {
       },
     });
 
-    const qrData = await qrRes.json();
-    console.log("   → QR data response:", JSON.stringify(qrData, null, 2));
+    const qrText = await qrRes.text();
+    console.log("   → QR code response raw text:", qrText);
+
+    let qrData;
+    try {
+      qrData = JSON.parse(qrText);
+    } catch (err) {
+      console.error("❌ Failed to parse QR code JSON:", err.message);
+      throw new Error("Mobimatter QR code response is not valid JSON");
+    }
 
     const qrUrl = qrData?.result?.activation?.imageUrl;
     if (!qrUrl) {
+      console.error("❌ QR code not found in Mobimatter response.");
       throw new Error("QR code image URL not found in Mobimatter response.");
     }
 
