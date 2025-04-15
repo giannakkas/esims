@@ -24,7 +24,6 @@ exports.handler = async (event) => {
   }
 
   try {
-    // 2. Extract required fields from the order
     const lineItem = shopifyOrder.line_items?.[0];
     const sku = lineItem?.sku;
     const customerEmail = shopifyOrder.email;
@@ -39,7 +38,7 @@ exports.handler = async (event) => {
       throw new Error("Missing SKU, email, or order ID in webhook payload.");
     }
 
-    // 3. Fetch Mobimatter /v1 products to get internal productId
+    // 2. Fetch product list from Mobimatter /v1
     console.log("🌐 Fetching Mobimatter /v1 products...");
     const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/products", {
       headers: {
@@ -48,29 +47,41 @@ exports.handler = async (event) => {
       },
     });
 
-    const productsJson = await productsRes.json();
-    const products = productsJson?.result;
+    const rawText = await productsRes.text();
 
+    if (!rawText || rawText.trim() === "") {
+      throw new Error("Mobimatter /v1/products responded with empty body.");
+    }
+
+    let productsJson;
+    try {
+      productsJson = JSON.parse(rawText);
+    } catch (err) {
+      console.error("❌ Failed to parse Mobimatter /v1/products JSON:", rawText);
+      throw new Error("Mobimatter /v1/products response is not valid JSON");
+    }
+
+    const products = productsJson?.result;
     if (!Array.isArray(products)) {
       throw new Error("Invalid product list from Mobimatter /v1/products");
     }
 
     const product = products.find((p) => p.uniqueId === sku || p.id === sku);
     if (!product) {
-      throw new Error(`No matching product found in Mobimatter v1 for SKU: ${sku}`);
+      throw new Error(`No matching product found for SKU: ${sku}`);
     }
 
-    console.log("🔎 Matched Mobimatter /v1 product:");
+    console.log("🔎 Matched Mobimatter product:");
     console.log(JSON.stringify(product, null, 2));
 
     const productId = product.id;
     if (!productId) {
-      throw new Error(`Product matched but missing internal ID`);
+      throw new Error("Matched product is missing internal 'id'");
     }
 
     console.log("✅ Using internal productId:", productId);
 
-    // 4. Create Mobimatter order
+    // 3. Create Mobimatter order
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order", {
       method: "POST",
@@ -87,31 +98,27 @@ exports.handler = async (event) => {
     });
 
     console.log("   → Mobimatter response status:", createRes.status);
-    console.log("   → Headers:", JSON.stringify(Object.fromEntries(createRes.headers), null, 2));
-
     const createText = await createRes.text();
     if (!createText || createText.trim() === "") {
       throw new Error(`Mobimatter responded with empty body. Status: ${createRes.status}`);
     }
 
-    console.log("   → Mobimatter raw response:", createText);
-
     let createData;
     try {
       createData = JSON.parse(createText);
-    } catch (jsonErr) {
-      console.error("❌ Mobimatter create order response not valid JSON. Raw text:", createText);
+    } catch (err) {
+      console.error("❌ Failed to parse Mobimatter create order response:", createText);
       throw new Error("Mobimatter create order response is not valid JSON");
     }
 
     const mobimatterOrderId = createData?.result?.orderId;
     if (!mobimatterOrderId) {
-      throw new Error("Failed to create Mobimatter order. No orderId returned.");
+      throw new Error("Mobimatter did not return an orderId.");
     }
 
-    console.log(`✅ Mobimatter order created: ${mobimatterOrderId}`);
+    console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-    // 5. Complete Mobimatter order
+    // 4. Complete Mobimatter order
     console.log("🔄 Completing Mobimatter order...");
     const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order/complete", {
       method: "POST",
@@ -125,9 +132,9 @@ exports.handler = async (event) => {
 
     const completeText = await completeRes.text();
     console.log("   → Mobimatter complete response:", completeText);
-    console.log("✅ Mobimatter order completed.");
+    console.log("✅ Mobimatter order completed");
 
-    // 6. Fetch QR code
+    // 5. Fetch QR Code
     console.log("🔍 Fetching activation QR code...");
     const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v1/order/${mobimatterOrderId}`, {
       headers: {
@@ -137,25 +144,23 @@ exports.handler = async (event) => {
     });
 
     const qrText = await qrRes.text();
-    console.log("   → QR code response raw text:", qrText);
-
     let qrData;
     try {
       qrData = JSON.parse(qrText);
     } catch (err) {
-      console.error("❌ Failed to parse QR code JSON:", err.message);
-      throw new Error("Mobimatter QR code response is not valid JSON");
+      console.error("❌ Failed to parse QR code response:", qrText);
+      throw new Error("QR code response is not valid JSON");
     }
 
     const qrUrl = qrData?.result?.activation?.imageUrl;
     if (!qrUrl) {
-      throw new Error("QR code image URL not found in Mobimatter response.");
+      throw new Error("QR code imageUrl not found in Mobimatter response.");
     }
 
-    console.log(`🖼 QR code URL retrieved: ${qrUrl}`);
+    console.log("🖼 QR code URL:", qrUrl);
 
-    // 7. Add QR to Shopify order note
-    console.log("📝 Updating Shopify order note with QR code...");
+    // 6. Add QR code to Shopify order note
+    console.log("📝 Updating Shopify order note...");
     const noteRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/orders/${orderId}.json`, {
       method: "PUT",
       headers: {
@@ -171,13 +176,12 @@ exports.handler = async (event) => {
     });
 
     const noteJson = await noteRes.json();
-    console.log("✅ Shopify order note updated successfully.");
-    console.log("   → Final note:", noteJson?.order?.note);
+    console.log("✅ Shopify order note updated.");
 
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: "QR code generated and added to order note.",
+        message: "Order completed, QR code added to note.",
         qrUrl,
       }),
     };
