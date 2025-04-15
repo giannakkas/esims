@@ -22,15 +22,20 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  // ✅ Validity fix
+  // ✅ Final Validity Fix
   const rawValidity = details.PLAN_VALIDITY || "";
+  const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
+  const isNumericOnly = /^\d+$/.test(rawValidity);
   const validityUnit = rawValidity.toLowerCase().includes("week")
     ? "weeks"
     : rawValidity.toLowerCase().includes("month")
     ? "months"
     : "days";
-  const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
-  const validityValue = hasTimeUnit ? rawValidity : `${rawValidity} ${validityUnit}`;
+  const validityValue = hasTimeUnit
+    ? rawValidity
+    : isNumericOnly
+    ? `${rawValidity} ${validityUnit}`
+    : rawValidity;
 
   return `
     <div class="esim-description">
@@ -130,15 +135,20 @@ exports.handler = async () => {
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
 
-        // ✅ Validity fix repeated here
+        // ✅ Apply validity logic here again
         const rawValidity = details.PLAN_VALIDITY || "";
+        const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
+        const isNumericOnly = /^\d+$/.test(rawValidity);
         const validityUnit = rawValidity.toLowerCase().includes("week")
           ? "weeks"
           : rawValidity.toLowerCase().includes("month")
           ? "months"
           : "days";
-        const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
-        const validityValue = hasTimeUnit ? rawValidity : `${rawValidity} ${validityUnit}`;
+        const validityValue = hasTimeUnit
+          ? rawValidity
+          : isNumericOnly
+          ? `${rawValidity} ${validityUnit}`
+          : rawValidity;
 
         const metafields = [
           { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
