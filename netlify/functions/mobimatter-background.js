@@ -81,7 +81,7 @@ exports.handler = async () => {
 
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 5)) {
+    for (const product of products.slice(0, 100)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
