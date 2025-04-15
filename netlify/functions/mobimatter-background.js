@@ -212,8 +212,6 @@ exports.handler = async () => {
           console.error("❌ Failed to parse locations JSON:", err.message);
         }
 
-        console.log("📍 Shopify locations (parsed):", locations);
-
         const locationId = locations?.[0]?.id;
 
         if (locationId) {
@@ -244,6 +242,10 @@ exports.handler = async () => {
     }
 
     console.log("✅ Sync complete.");
+    console.log(`📦 Created: ${created.length}`);
+    console.log(`⏭️ Skipped: ${skipped.length}`);
+    console.log(`❌ Failed: ${failed.length}`);
+
     return {
       statusCode: 200,
       body: JSON.stringify({ created, skipped, failed }),
