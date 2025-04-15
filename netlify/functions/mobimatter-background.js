@@ -95,8 +95,10 @@ exports.handler = async () => {
       const checkJson = await checkRes.json();
       const exists = checkJson?.data?.products?.edges?.length > 0;
       if (exists) {
-        console.log(`⏭️ Skipped: ${product.productFamilyName}`);
-        skipped.push(product.productFamilyName);
+        const details = getProductDetails(product);
+        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+        console.log(`⏭️ Skipped: ${title}`);
+        skipped.push(title);
         continue;
       }
 
