@@ -31,7 +31,7 @@ exports.handler = async (event) => {
     const orderId = shopifyOrder.id;
 
     console.log("🔍 Extracted values:");
-    console.log("   → SKU:", sku);
+    console.log("   → SKU (Mobimatter uniqueId):", sku);
     console.log("   → Customer Email:", customerEmail);
     console.log("   → Shopify Order ID:", orderId);
 
@@ -39,7 +39,31 @@ exports.handler = async (event) => {
       throw new Error("Missing SKU, email, or order ID in webhook payload.");
     }
 
-    // 3. Create Mobimatter order
+    // 3. Fetch Mobimatter products to find the correct productId
+    console.log("🌐 Fetching Mobimatter product list to find productId...");
+    const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
+      headers: {
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID,
+      },
+    });
+
+    const productsJson = await productsRes.json();
+    const products = productsJson?.result;
+
+    if (!Array.isArray(products)) {
+      throw new Error("Invalid product list received from Mobimatter");
+    }
+
+    const product = products.find((p) => p.uniqueId === sku);
+    if (!product) {
+      throw new Error(`No matching product found in Mobimatter for SKU: ${sku}`);
+    }
+
+    const productId = product.productId;
+    console.log("✅ Found Mobimatter productId:", productId);
+
+    // 4. Create Mobimatter order
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order", {
       method: "POST",
@@ -49,17 +73,15 @@ exports.handler = async (event) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        productId: sku,
+        productId,
         quantity: 1,
         customerEmail,
       }),
     });
 
-    // Log response status and headers
     console.log("   → Mobimatter response status:", createRes.status);
     console.log("   → Headers:", JSON.stringify(Object.fromEntries(createRes.headers), null, 2));
 
-    // Check for empty body
     const createText = await createRes.text();
     if (!createText || createText.trim() === "") {
       throw new Error(`Mobimatter responded with empty body. Status: ${createRes.status}`);
@@ -76,15 +98,13 @@ exports.handler = async (event) => {
     }
 
     const mobimatterOrderId = createData?.result?.orderId;
-
     if (!mobimatterOrderId) {
-      console.error("❌ Mobimatter did not return a valid orderId.");
       throw new Error("Failed to create Mobimatter order. No orderId returned.");
     }
 
     console.log(`✅ Mobimatter order created: ${mobimatterOrderId}`);
 
-    // 4. Complete Mobimatter order
+    // 5. Complete Mobimatter order
     console.log("🔄 Completing Mobimatter order...");
     const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order/complete", {
       method: "POST",
@@ -98,10 +118,9 @@ exports.handler = async (event) => {
 
     const completeText = await completeRes.text();
     console.log("   → Mobimatter complete response:", completeText);
-
     console.log("✅ Mobimatter order completed.");
 
-    // 5. Fetch QR code
+    // 6. Fetch QR code
     console.log("🔍 Fetching activation QR code...");
     const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v1/order/${mobimatterOrderId}`, {
       headers: {
@@ -123,15 +142,13 @@ exports.handler = async (event) => {
 
     const qrUrl = qrData?.result?.activation?.imageUrl;
     if (!qrUrl) {
-      console.error("❌ QR code not found in Mobimatter response.");
       throw new Error("QR code image URL not found in Mobimatter response.");
     }
 
     console.log(`🖼 QR code URL retrieved: ${qrUrl}`);
 
-    // 6. Add QR to Shopify order note
+    // 7. Add QR to Shopify order note
     console.log("📝 Updating Shopify order note with QR code...");
-
     const noteRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/orders/${orderId}.json`, {
       method: "PUT",
       headers: {
