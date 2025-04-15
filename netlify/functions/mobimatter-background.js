@@ -151,7 +151,6 @@ exports.handler = async () => {
 
       const numericId = shopifyId.split("/").pop();
 
-      // Upload image
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -164,7 +163,6 @@ exports.handler = async () => {
         console.log(`🖼️ Image uploaded for: ${title}`);
       }
 
-      // Update variant + inventory
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
         headers: {
           "Content-Type": "application/json",
@@ -194,7 +192,6 @@ exports.handler = async () => {
           }),
         });
 
-        // Fetch location ID safely
         const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
           headers: {
             "Content-Type": "application/json",
@@ -202,16 +199,18 @@ exports.handler = async () => {
           },
         });
 
+        const raw = await locationsRes.text();
+        console.log("📨 Raw locations response:", raw);
+
         let locations = [];
         try {
-          const raw = await locationsRes.text();
           const parsed = JSON.parse(raw);
           locations = parsed.locations;
         } catch (err) {
-          console.error("❌ Failed to parse locations response:", err.message);
+          console.error("❌ Failed to parse locations JSON:", err.message);
         }
 
-        console.log("📍 Shopify locations:", locations);
+        console.log("📍 Shopify locations (parsed):", locations);
 
         const locationId = locations?.[0]?.id;
 
