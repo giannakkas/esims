@@ -101,9 +101,9 @@ exports.handler = async (event) => {
 
     console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-    // ✅ Order complete by default — now retrieve QR
+    // ✅ Retrieve QR code from /v2/order/{id}
     console.log("🔍 Fetching activation QR code...");
-    const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v1/order/${mobimatterOrderId}`, {
+    const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
         merchantId: MOBIMATTER_MERCHANT_ID,
