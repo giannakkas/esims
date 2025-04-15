@@ -22,7 +22,10 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  const validityValue = details.PLAN_VALIDITY || "?";
+  // ✅ Smart Validity Logic
+  const rawValidity = details.PLAN_VALIDITY || "";
+  const hasUnit = /(day|week|month)s?/i.test(rawValidity);
+  const validityValue = hasUnit ? rawValidity : `${rawValidity} days`;
 
   return `
     <div class="esim-description">
@@ -118,7 +121,12 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const validityValue = details.PLAN_VALIDITY || "?";
+
+        // ✅ Smart Validity Logic
+        const rawValidity = details.PLAN_VALIDITY || "";
+        const hasUnit = /(day|week|month)s?/i.test(rawValidity);
+        const validityValue = hasUnit ? rawValidity : `${rawValidity} days`;
+
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
 
