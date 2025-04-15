@@ -88,13 +88,103 @@ exports.handler = async () => {
     const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    // ✅ Add product processing logic here as needed (creation, metafields, etc.)
+    for (const product of products.slice(0, 5)) {
+      const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
+      console.log(`Checking if product exists: ${handle}`);
 
+      const checkRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        }
+      );
+      const { products: existing } = await checkRes.json();
+      if (existing.length > 0) {
+        console.log(`Skipping duplicate by handle: ${handle}`);
+        skipped.push(product.productFamilyName || "Unnamed");
+        continue;
+      }
+
+      try {
+        const details = getProductDetails(product);
+        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+        const countryNames = (product.countries || []).map(getCountryName);
+        const countriesText = countryNames.join(", ");
+        const validityValue = normalizeValidity(details.PLAN_VALIDITY);
+
+        const input = {
+          title,
+          handle,
+          descriptionHtml: buildDescription(product, details),
+          vendor: product.providerName || "Mobimatter",
+          productType: "eSIM",
+          tags: [
+            `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
+            ...countryNames,
+            details.FIVEG === "1" ? "5G" : "4G",
+            validityValue,
+          ],
+          published: true,
+        };
+
+        const mutation = `
+          mutation productCreate($input: ProductInput!) {
+            productCreate(input: $input) {
+              product {
+                id
+                title
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `;
+
+        console.log(`Creating product: ${title}`);
+        const shopifyRes = await fetch(
+          `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({ query: mutation, variables: { input } }),
+          }
+        );
+
+        const json = await shopifyRes.json();
+        const userErrors = json?.data?.productCreate?.userErrors;
+        const shopifyId = json?.data?.productCreate?.product?.id;
+
+        if (userErrors?.length) {
+          console.error(`Errors creating product ${title}:`, userErrors);
+          failed.push({ title, reason: userErrors.map((e) => e.message).join(", ") });
+          continue;
+        }
+
+        if (shopifyId) {
+          created.push(title);
+        }
+      } catch (err) {
+        console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
+        failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
+      }
+    }
+
+    console.log("Sync complete. Created:", created.length, "Skipped:", skipped.length, "Failed:", failed.length);
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: "Fetched products successfully.",
-        fetched: products.length,
+        message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`,
+        created,
+        skipped,
+        failed,
       }),
     };
   } catch (err) {
