@@ -29,6 +29,7 @@ const normalizeValidity = (value) => {
 
   if (/week/i.test(value)) return `${Math.round(num * 7)} Days`;
   if (/month/i.test(value)) return `${Math.round(num * 30)} Days`;
+  if (/year/i.test(value)) return `${Math.round(num * 365)} Days`;
   if (/day/i.test(value)) return `${Math.round(num)} Days`;
 
   return `${Math.round(num)} Days`;
@@ -36,7 +37,7 @@ const normalizeValidity = (value) => {
 
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
   const normalizedValidity = normalizeValidity(details.PLAN_VALIDITY);
@@ -61,7 +62,7 @@ const buildDescription = (product, details) => {
   `;
 };
 
-exports.handler = async () => {
+export const handler = async () => {
   const {
     MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
@@ -74,7 +75,6 @@ exports.handler = async () => {
   const created = [], skipped = [], failed = [];
 
   try {
-    console.log("Fetching from Mobimatter API...");
     const response = await fetch(MOBIMATTER_API_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
@@ -84,11 +84,9 @@ exports.handler = async () => {
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
     const { result: products } = await response.json();
-    console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 30)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
-      console.log(`Checking if product exists: ${handle}`);
 
       const checkRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
@@ -101,7 +99,6 @@ exports.handler = async () => {
       );
       const { products: existing } = await checkRes.json();
       if (existing.length > 0) {
-        console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
       }
@@ -112,7 +109,7 @@ exports.handler = async () => {
 
         const countryNames = (product.countries || []).map(getCountryName);
         const countriesText = countryNames.join(", ");
-        const validityValue = normalizeValidity(details.PLAN_VALIDITY);
+        const normalizedValidity = normalizeValidity(details.PLAN_VALIDITY);
 
         const metafields = [
           {
@@ -137,7 +134,7 @@ exports.handler = async () => {
             namespace: "esim",
             key: "validity",
             type: "single_line_text_field",
-            value: validityValue,
+            value: normalizedValidity,
           },
           {
             namespace: "esim",
@@ -173,7 +170,7 @@ exports.handler = async () => {
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
           ...countryNames,
           details.FIVEG === "1" ? "5G" : "4G",
-          validityValue,
+          normalizedValidity,
           ...(details.SPEED ? [details.SPEED] : []),
           ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
           ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
@@ -205,7 +202,6 @@ exports.handler = async () => {
           }
         `;
 
-        console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -223,14 +219,12 @@ exports.handler = async () => {
         const shopifyId = json?.data?.productCreate?.product?.id;
 
         if (userErrors?.length) {
-          console.error(`Errors creating product ${title}:`, userErrors);
           failed.push({ title, reason: userErrors.map((e) => e.message).join(", ") });
           continue;
         }
 
         if (shopifyId) {
           const numericId = shopifyId.split("/").pop();
-          console.log(`Created product ${title} with ID ${numericId}`);
 
           if (product.providerLogo?.startsWith("http")) {
             await fetch(
@@ -283,26 +277,18 @@ exports.handler = async () => {
           created.push(title);
         }
       } catch (err) {
-        console.error(`Error syncing product ${product.productFamilyName || "Unnamed"}:`, err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
 
-    console.log("Sync complete. Created:", created.length, "Skipped:", skipped.length, "Failed:", failed.length);
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        message: `Created ${created.length}, Skipped ${skipped.length}, Failed ${failed.length}`,
-        created,
-        skipped,
-        failed,
-      }),
+      body: JSON.stringify({ created, skipped, failed }),
     };
   } catch (err) {
-    console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
 };
