@@ -24,18 +24,8 @@ const buildDescription = (product, details) => {
 
   // ✅ Final Validity Fix
   const rawValidity = details.PLAN_VALIDITY || "";
-  const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
   const isNumericOnly = /^\d+$/.test(rawValidity);
-  const validityUnit = rawValidity.toLowerCase().includes("week")
-    ? "weeks"
-    : rawValidity.toLowerCase().includes("month")
-    ? "months"
-    : "days";
-  const validityValue = hasTimeUnit
-    ? rawValidity
-    : isNumericOnly
-    ? `${rawValidity} ${validityUnit}`
-    : rawValidity;
+  const validityValue = isNumericOnly ? `${rawValidity} days` : rawValidity;
 
   return `
     <div class="esim-description">
@@ -135,20 +125,10 @@ exports.handler = async () => {
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
 
-        // ✅ Apply validity logic here again
+        // ✅ Final Validity Fix (again here for metafields)
         const rawValidity = details.PLAN_VALIDITY || "";
-        const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
         const isNumericOnly = /^\d+$/.test(rawValidity);
-        const validityUnit = rawValidity.toLowerCase().includes("week")
-          ? "weeks"
-          : rawValidity.toLowerCase().includes("month")
-          ? "months"
-          : "days";
-        const validityValue = hasTimeUnit
-          ? rawValidity
-          : isNumericOnly
-          ? `${rawValidity} ${validityUnit}`
-          : rawValidity;
+        const validityValue = isNumericOnly ? `${rawValidity} days` : rawValidity;
 
         const metafields = [
           { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
