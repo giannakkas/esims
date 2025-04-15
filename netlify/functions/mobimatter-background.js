@@ -79,7 +79,7 @@ exports.handler = async () => {
 
     const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
 
-    // 🔥 Step 1: Delete old Shopify products
+    // 🔥 Step 1: Delete removed Shopify products
     console.log("🧹 Checking for products to delete...");
     let hasNextPage = true;
     let cursor = null;
@@ -149,7 +149,7 @@ exports.handler = async () => {
       cursor = edges.length ? edges[edges.length - 1].cursor : null;
     }
 
-    // 🔁 Step 2: Create products
+    // 🔁 Step 2: Create new products
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       const handleQuery = `
@@ -201,23 +201,13 @@ exports.handler = async () => {
           { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
         ];
 
-        const tags = [
-          `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
-          ...countryNames,
-          details.FIVEG === "1" ? "5G" : "4G",
-          validityInDays,
-          ...(details.SPEED ? [details.SPEED] : []),
-          ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
-          ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
-        ];
-
         const input = {
           title,
           handle,
           descriptionHtml: buildDescription(product, details),
           vendor: product.providerName || "Mobimatter",
           productType: "eSIM",
-          tags,
+          tags: [],
           published: true,
           metafields,
         };
@@ -256,6 +246,31 @@ exports.handler = async () => {
         if (shopifyId) {
           console.log(`✅ Created: ${title}`);
           created.push(title);
+
+          const numericId = shopifyId.split("/").pop();
+          if (product.providerLogo?.startsWith("http")) {
+            try {
+              const imageRes = await fetch(
+                `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                  },
+                  body: JSON.stringify({ image: { src: product.providerLogo } }),
+                }
+              );
+
+              if (imageRes.ok) {
+                console.log(`🖼️ Image uploaded for: ${title}`);
+              } else {
+                console.error(`⚠️ Failed to upload image for: ${title}`);
+              }
+            } catch (err) {
+              console.error(`❌ Error uploading image for ${title}:`, err.message);
+            }
+          }
         }
       } catch (err) {
         console.error(`❌ Error syncing ${product.productFamilyName || "Unnamed"}:`, err.message);
