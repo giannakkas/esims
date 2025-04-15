@@ -10,13 +10,12 @@ exports.handler = async (event) => {
 
   console.log("📦 Shopify webhook received.");
 
-  // 1. Parse webhook payload safely
   let shopifyOrder;
   try {
     shopifyOrder = JSON.parse(event.body);
     console.log("✅ Webhook JSON parsed successfully.");
-  } catch (parseError) {
-    console.error("❌ Failed to parse webhook body. Raw body:", event.body);
+  } catch (err) {
+    console.error("❌ Failed to parse webhook body:", err.message);
     return {
       statusCode: 400,
       body: JSON.stringify({ error: "Invalid JSON in webhook body" }),
@@ -38,52 +37,37 @@ exports.handler = async (event) => {
       throw new Error("Missing SKU, email, or order ID in webhook payload.");
     }
 
-    // 2. Fetch product list from Mobimatter /v1
-    console.log("🌐 Fetching Mobimatter /v1 products...");
-    const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/products", {
+    // 🔄 Fetch products from /v2/products
+    console.log("🌐 Fetching Mobimatter /v2 products...");
+    const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
         merchantId: MOBIMATTER_MERCHANT_ID,
       },
     });
 
-    const rawText = await productsRes.text();
+    const productsData = await productsRes.json();
+    const products = productsData?.result;
 
-    if (!rawText || rawText.trim() === "") {
-      throw new Error("Mobimatter /v1/products responded with empty body.");
-    }
-
-    let productsJson;
-    try {
-      productsJson = JSON.parse(rawText);
-    } catch (err) {
-      console.error("❌ Failed to parse Mobimatter /v1/products JSON:", rawText);
-      throw new Error("Mobimatter /v1/products response is not valid JSON");
-    }
-
-    const products = productsJson?.result;
     if (!Array.isArray(products)) {
-      throw new Error("Invalid product list from Mobimatter /v1/products");
+      throw new Error("Invalid product list from Mobimatter /v2/products");
     }
 
-    const product = products.find((p) => p.uniqueId === sku || p.id === sku);
+    const product = products.find((p) => p.uniqueId === sku);
     if (!product) {
       throw new Error(`No matching product found for SKU: ${sku}`);
     }
 
-    console.log("🔎 Matched Mobimatter product:");
-    console.log(JSON.stringify(product, null, 2));
-
-    const productId = product.id;
+    const productId = product.productId;
     if (!productId) {
-      throw new Error("Matched product is missing internal 'id'");
+      throw new Error("Product found, but productId is missing");
     }
 
-    console.log("✅ Using internal productId:", productId);
+    console.log("✅ Found Mobimatter productId:", productId);
 
-    // 3. Create Mobimatter order
-    console.log("📝 Creating Mobimatter order...");
-    const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order", {
+    // 📝 Create Mobimatter order via /v2/order
+    console.log("📝 Creating Mobimatter order via /v2...");
+    const createOrderRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
         "api-key": MOBIMATTER_API_KEY,
@@ -97,44 +81,27 @@ exports.handler = async (event) => {
       }),
     });
 
-    console.log("   → Mobimatter response status:", createRes.status);
-    const createText = await createRes.text();
+    const createText = await createOrderRes.text();
     if (!createText || createText.trim() === "") {
-      throw new Error(`Mobimatter responded with empty body. Status: ${createRes.status}`);
+      throw new Error(`Mobimatter /v2/order returned empty response. Status: ${createOrderRes.status}`);
     }
 
     let createData;
     try {
       createData = JSON.parse(createText);
     } catch (err) {
-      console.error("❌ Failed to parse Mobimatter create order response:", createText);
-      throw new Error("Mobimatter create order response is not valid JSON");
+      console.error("❌ Failed to parse /v2/order response:", createText);
+      throw new Error("Invalid JSON from Mobimatter /v2/order");
     }
 
     const mobimatterOrderId = createData?.result?.orderId;
     if (!mobimatterOrderId) {
-      throw new Error("Mobimatter did not return an orderId.");
+      throw new Error("No orderId returned from Mobimatter /v2/order");
     }
 
     console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-    // 4. Complete Mobimatter order
-    console.log("🔄 Completing Mobimatter order...");
-    const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/order/complete", {
-      method: "POST",
-      headers: {
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ orderId: mobimatterOrderId }),
-    });
-
-    const completeText = await completeRes.text();
-    console.log("   → Mobimatter complete response:", completeText);
-    console.log("✅ Mobimatter order completed");
-
-    // 5. Fetch QR Code
+    // ✅ Order complete by default — now retrieve QR
     console.log("🔍 Fetching activation QR code...");
     const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v1/order/${mobimatterOrderId}`, {
       headers: {
@@ -148,19 +115,19 @@ exports.handler = async (event) => {
     try {
       qrData = JSON.parse(qrText);
     } catch (err) {
-      console.error("❌ Failed to parse QR code response:", qrText);
-      throw new Error("QR code response is not valid JSON");
+      console.error("❌ Failed to parse QR response:", qrText);
+      throw new Error("Invalid JSON from QR code fetch");
     }
 
     const qrUrl = qrData?.result?.activation?.imageUrl;
     if (!qrUrl) {
-      throw new Error("QR code imageUrl not found in Mobimatter response.");
+      throw new Error("QR code imageUrl not found in response");
     }
 
     console.log("🖼 QR code URL:", qrUrl);
 
-    // 6. Add QR code to Shopify order note
-    console.log("📝 Updating Shopify order note...");
+    // 📝 Add QR code to Shopify order note
+    console.log("✍️ Updating Shopify order note...");
     const noteRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2025-04/orders/${orderId}.json`, {
       method: "PUT",
       headers: {
@@ -180,10 +147,7 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        message: "Order completed, QR code added to note.",
-        qrUrl,
-      }),
+      body: JSON.stringify({ message: "Order processed and QR code added.", qrUrl }),
     };
   } catch (error) {
     console.error("❌ Error in order-paid handler:", error.message);
