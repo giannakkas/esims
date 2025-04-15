@@ -111,15 +111,20 @@ exports.handler = async (event) => {
     });
 
     const qrText = await qrRes.text();
+    console.log("📦 Full QR JSON:", qrText); // Log full QR data for inspection
+
     let qrData;
     try {
       qrData = JSON.parse(qrText);
     } catch (err) {
-      console.error("❌ Failed to parse QR response:", qrText);
+      console.error("❌ Failed to parse QR JSON:", qrText);
       throw new Error("Invalid JSON from QR code fetch");
     }
 
-    const qrUrl = qrData?.result?.activation?.imageUrl;
+    console.log("📄 activation object:", qrData?.result?.activation); // Inspect activation block
+
+    // Temporary placeholder — we'll fix this once we know the exact key
+    const qrUrl = qrData?.result?.activation?.imageUrl; // likely not valid for all
     if (!qrUrl) {
       throw new Error("QR code imageUrl not found in response");
     }
