@@ -55,7 +55,16 @@ exports.handler = async (event) => {
       }),
     });
 
+    // Log response status and headers
+    console.log("   → Mobimatter response status:", createRes.status);
+    console.log("   → Headers:", JSON.stringify(Object.fromEntries(createRes.headers), null, 2));
+
+    // Check for empty body
     const createText = await createRes.text();
+    if (!createText || createText.trim() === "") {
+      throw new Error(`Mobimatter responded with empty body. Status: ${createRes.status}`);
+    }
+
     console.log("   → Mobimatter raw response:", createText);
 
     let createData;
