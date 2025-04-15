@@ -39,9 +39,9 @@ exports.handler = async (event) => {
       throw new Error("Missing SKU, email, or order ID in webhook payload.");
     }
 
-    // 3. Fetch Mobimatter products to find the correct internal productId
-    console.log("🌐 Fetching Mobimatter product list to find productId...");
-    const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
+    // 3. Fetch Mobimatter /v1 products to get internal productId
+    console.log("🌐 Fetching Mobimatter /v1 products...");
+    const productsRes = await fetch("https://api.mobimatter.com/mobimatter/api/v1/products", {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
         merchantId: MOBIMATTER_MERCHANT_ID,
@@ -52,24 +52,23 @@ exports.handler = async (event) => {
     const products = productsJson?.result;
 
     if (!Array.isArray(products)) {
-      throw new Error("Invalid product list received from Mobimatter");
+      throw new Error("Invalid product list from Mobimatter /v1/products");
     }
 
-    const product = products.find((p) => p.uniqueId === sku);
+    const product = products.find((p) => p.uniqueId === sku || p.id === sku);
     if (!product) {
-      throw new Error(`No matching product found in Mobimatter for SKU: ${sku}`);
+      throw new Error(`No matching product found in Mobimatter v1 for SKU: ${sku}`);
     }
 
-    // 🧪 Debug: log full product object
-    console.log("🔎 Matched Mobimatter product:");
+    console.log("🔎 Matched Mobimatter /v1 product:");
     console.log(JSON.stringify(product, null, 2));
 
-    const productId = product.productId || product.id;
+    const productId = product.id;
     if (!productId) {
-      throw new Error(`Product found for SKU ${sku}, but productId is missing`);
+      throw new Error(`Product matched but missing internal ID`);
     }
 
-    console.log("✅ Using Mobimatter productId:", productId);
+    console.log("✅ Using internal productId:", productId);
 
     // 4. Create Mobimatter order
     console.log("📝 Creating Mobimatter order...");
