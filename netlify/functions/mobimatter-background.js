@@ -57,7 +57,7 @@ exports.handler = async () => {
   } = process.env;
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [], skipped = [], failed = [], deleted = [];
+  const created = [], skipped = [], failed = [];
 
   try {
     console.log("📡 Fetching from Mobimatter API...");
@@ -74,13 +74,11 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
 
-    const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
-
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       const checkQuery = `{
-        products(first: 1, query: \"handle:${handle}\") {
+        products(first: 1, query: "handle:${handle}") {
           edges { node { id title } }
         }
       }`;
@@ -131,7 +129,13 @@ exports.handler = async () => {
         metafields,
       };
 
-      const mutation = `mutation productCreate($input: ProductInput!) { productCreate(input: $input) { product { id title } userErrors { field message } } }`;
+      const mutation = `mutation productCreate($input: ProductInput!) {
+        productCreate(input: $input) {
+          product { id title }
+          userErrors { field message }
+        }
+      }`;
+
       const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
         method: "POST",
         headers: {
@@ -190,7 +194,7 @@ exports.handler = async () => {
           }),
         });
 
-        // Fetch location ID
+        // Fetch location ID and update stock
         const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
           headers: {
             "Content-Type": "application/json",
@@ -198,6 +202,8 @@ exports.handler = async () => {
           },
         });
         const { locations } = await locationsRes.json();
+        console.log("📍 Shopify locations:", locations); // <--- DEBUG LOG
+
         const locationId = locations?.[0]?.id;
 
         if (locationId) {
@@ -230,7 +236,7 @@ exports.handler = async () => {
     console.log("✅ Sync complete.");
     return {
       statusCode: 200,
-      body: JSON.stringify({ created, skipped, deleted, failed }),
+      body: JSON.stringify({ created, skipped, failed }),
     };
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
