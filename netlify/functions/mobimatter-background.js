@@ -22,10 +22,11 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  // ✅ Smart Validity Logic
+  // ✅ Convert hours to days
   const rawValidity = details.PLAN_VALIDITY || "";
-  const hasUnit = /(day|week|month)s?/i.test(rawValidity);
-  const validityValue = hasUnit ? rawValidity : `${rawValidity} days`;
+  const validityInDays = /^\d+$/.test(rawValidity)
+    ? `${parseInt(rawValidity) / 24} days`
+    : rawValidity;
 
   return `
     <div class="esim-description">
@@ -35,7 +36,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${validityValue}</p>
+      <p><strong>Validity:</strong> ${validityInDays}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -122,10 +123,11 @@ exports.handler = async () => {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
-        // ✅ Smart Validity Logic
+        // ✅ Convert hours to days for metafield
         const rawValidity = details.PLAN_VALIDITY || "";
-        const hasUnit = /(day|week|month)s?/i.test(rawValidity);
-        const validityValue = hasUnit ? rawValidity : `${rawValidity} days`;
+        const validityInDays = /^\d+$/.test(rawValidity)
+          ? `${parseInt(rawValidity) / 24} days`
+          : rawValidity;
 
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
@@ -134,7 +136,7 @@ exports.handler = async () => {
           { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
           { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
           { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
-          { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityValue },
+          { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
           { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
           { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
           { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
@@ -145,7 +147,7 @@ exports.handler = async () => {
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
           ...countryNames,
           details.FIVEG === "1" ? "5G" : "4G",
-          validityValue,
+          validityInDays,
           ...(details.SPEED ? [details.SPEED] : []),
           ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
           ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
