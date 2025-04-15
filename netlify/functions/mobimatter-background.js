@@ -22,10 +22,7 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  // ✅ Final Validity Fix
-  const rawValidity = details.PLAN_VALIDITY || "";
-  const isNumericOnly = /^\d+$/.test(rawValidity);
-  const validityValue = isNumericOnly ? `${rawValidity} days` : rawValidity;
+  const validityValue = details.PLAN_VALIDITY || "?";
 
   return `
     <div class="esim-description">
@@ -121,14 +118,9 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-
+        const validityValue = details.PLAN_VALIDITY || "?";
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
-
-        // ✅ Final Validity Fix (again here for metafields)
-        const rawValidity = details.PLAN_VALIDITY || "";
-        const isNumericOnly = /^\d+$/.test(rawValidity);
-        const validityValue = isNumericOnly ? `${rawValidity} days` : rawValidity;
 
         const metafields = [
           { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
@@ -177,7 +169,6 @@ exports.handler = async () => {
           }
         `;
 
-        console.log(`Creating product: ${title}`);
         const shopifyRes = await fetch(
           `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
           {
@@ -204,7 +195,6 @@ exports.handler = async () => {
           const numericId = shopifyId.split("/").pop();
           console.log(`Created product ${title} with ID ${numericId}`);
 
-          // Upload provider logo as image
           if (product.providerLogo?.startsWith("http")) {
             await fetch(
               `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
@@ -219,7 +209,6 @@ exports.handler = async () => {
             );
           }
 
-          // Update variant pricing
           const variantRes = await fetch(
             `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
             {
