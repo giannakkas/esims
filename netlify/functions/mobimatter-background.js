@@ -19,14 +19,18 @@ const getProductDetails = (product) => {
 
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
     .join("");
 
-  const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+  // ✅ Validity fix
+  const rawValidity = details.PLAN_VALIDITY || "";
+  const validityUnit = rawValidity.toLowerCase().includes("week")
     ? "weeks"
-    : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+    : rawValidity.toLowerCase().includes("month")
     ? "months"
     : "days";
+  const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
+  const validityValue = hasTimeUnit ? rawValidity : `${rawValidity} ${validityUnit}`;
 
   return `
     <div class="esim-description">
@@ -36,7 +40,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${validityUnit}</p>
+      <p><strong>Validity:</strong> ${validityValue}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -85,7 +89,6 @@ exports.handler = async () => {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
-      // ✅ New handle check using GraphQL
       const handleQuery = `
         {
           products(first: 1, query: "handle:${handle}") {
@@ -126,12 +129,16 @@ exports.handler = async () => {
 
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
-        const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+
+        // ✅ Validity fix repeated here
+        const rawValidity = details.PLAN_VALIDITY || "";
+        const validityUnit = rawValidity.toLowerCase().includes("week")
           ? "weeks"
-          : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+          : rawValidity.toLowerCase().includes("month")
           ? "months"
           : "days";
-        const validityValue = `${details.PLAN_VALIDITY || ""} ${validityUnit}`.trim();
+        const hasTimeUnit = /(day|week|month)s?/i.test(rawValidity);
+        const validityValue = hasTimeUnit ? rawValidity : `${rawValidity} ${validityUnit}`;
 
         const metafields = [
           { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
