@@ -194,15 +194,24 @@ exports.handler = async () => {
           }),
         });
 
-        // Fetch location ID and update stock
+        // Fetch location ID safely
         const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
           headers: {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
         });
-        const { locations } = await locationsRes.json();
-        console.log("📍 Shopify locations:", locations); // <--- DEBUG LOG
+
+        let locations = [];
+        try {
+          const raw = await locationsRes.text();
+          const parsed = JSON.parse(raw);
+          locations = parsed.locations;
+        } catch (err) {
+          console.error("❌ Failed to parse locations response:", err.message);
+        }
+
+        console.log("📍 Shopify locations:", locations);
 
         const locationId = locations?.[0]?.id;
 
