@@ -76,54 +76,6 @@ exports.handler = async () => {
 
     const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
 
-    // Step 1: Delete removed products
-    let hasNextPage = true;
-    let cursor = null;
-
-    while (hasNextPage) {
-      const query = `{
-        products(first: 50, ${cursor ? `after: \"${cursor}\",` : ""} query: \"handle:mobimatter-\") {
-          pageInfo { hasNextPage }
-          edges {
-            cursor
-            node { id title handle }
-          }
-        }
-      }`;
-
-      const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-        },
-        body: JSON.stringify({ query }),
-      });
-
-      const json = await res.json();
-      const edges = json?.data?.products?.edges || [];
-
-      for (const edge of edges) {
-        const { id, title, handle } = edge.node;
-        if (!mobimatterHandles.has(handle)) {
-          console.log(`🗑️ Deleting: ${title}`);
-          const mutation = `mutation { productDelete(input: { id: \"${id}\" }) { deletedProductId userErrors { field message } } }`;
-          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-            },
-            body: JSON.stringify({ query: mutation }),
-          });
-          deleted.push(title);
-        }
-      }
-      hasNextPage = json?.data?.products?.pageInfo?.hasNextPage;
-      cursor = edges.length ? edges[edges.length - 1].cursor : null;
-    }
-
-    // Step 2: Create or update products
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
@@ -152,12 +104,8 @@ exports.handler = async () => {
 
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-
       const rawValidity = details.PLAN_VALIDITY || "";
-      const validityInDays = /^\d+$/.test(rawValidity)
-        ? `${parseInt(rawValidity) / 24} days`
-        : rawValidity;
-
+      const validityInDays = /^\d+$/.test(rawValidity) ? `${parseInt(rawValidity) / 24} days` : rawValidity;
       const countryNames = (product.countries || []).map(getCountryDisplay);
       const countriesText = countryNames.join(", ");
 
@@ -184,7 +132,6 @@ exports.handler = async () => {
       };
 
       const mutation = `mutation productCreate($input: ProductInput!) { productCreate(input: $input) { product { id title } userErrors { field message } } }`;
-
       const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
         method: "POST",
         headers: {
@@ -200,7 +147,7 @@ exports.handler = async () => {
 
       const numericId = shopifyId.split("/").pop();
 
-      // Image upload
+      // Upload image
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -213,7 +160,7 @@ exports.handler = async () => {
         console.log(`🖼️ Image uploaded for: ${title}`);
       }
 
-      // Variant price + stock
+      // Update variant + inventory
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
         headers: {
           "Content-Type": "application/json",
@@ -223,7 +170,9 @@ exports.handler = async () => {
 
       const { variants } = await variantRes.json();
       const variantId = variants?.[0]?.id;
-      if (variantId) {
+      const inventoryItemId = variants?.[0]?.inventory_item_id;
+
+      if (variantId && inventoryItemId) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`, {
           method: "PUT",
           headers: {
@@ -235,16 +184,43 @@ exports.handler = async () => {
               id: variantId,
               price: (product.retailPrice || 0).toFixed(2),
               sku: product.uniqueId,
-              inventory_quantity: 999999,
               inventory_management: "shopify",
-              inventory_policy: "continue",
-              old_inventory_quantity: 0
+              inventory_policy: "continue"
             },
           }),
         });
+
+        // Fetch location ID
+        const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        });
+        const { locations } = await locationsRes.json();
+        const locationId = locations?.[0]?.id;
+
+        if (locationId) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({
+              location_id: locationId,
+              inventory_item_id: inventoryItemId,
+              available: 999999
+            }),
+          });
+          console.log(`📦 Inventory set at location ${locationId} for: ${title}`);
+        } else {
+          console.warn(`⚠️ No location found for: ${title}`);
+        }
+
         console.log(`💸 Price and stock set for: ${title}`);
       } else {
-        console.warn(`⚠️ No variant found for: ${title}`);
+        console.warn(`⚠️ No variant or inventory item found for: ${title}`);
       }
 
       created.push(title);
@@ -252,7 +228,6 @@ exports.handler = async () => {
     }
 
     console.log("✅ Sync complete.");
-    console.log(`🟢 Created: ${created.length}, ⏭️ Skipped: ${skipped.length}, 🗑️ Deleted: ${deleted.length}, ❌ Failed: ${failed.length}`);
     return {
       statusCode: 200,
       body: JSON.stringify({ created, skipped, deleted, failed }),
