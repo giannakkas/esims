@@ -210,6 +210,7 @@ exports.handler = async () => {
           },
           body: JSON.stringify({ image: { src: product.providerLogo } }),
         });
+        console.log(`🖼️ Image uploaded for: ${title}`);
       }
 
       // Variant price + stock
@@ -237,9 +238,13 @@ exports.handler = async () => {
               inventory_quantity: 999999,
               inventory_management: "shopify",
               inventory_policy: "continue",
+              old_inventory_quantity: 0
             },
           }),
         });
+        console.log(`💸 Price and stock set for: ${title}`);
+      } else {
+        console.warn(`⚠️ No variant found for: ${title}`);
       }
 
       created.push(title);
@@ -247,6 +252,7 @@ exports.handler = async () => {
     }
 
     console.log("✅ Sync complete.");
+    console.log(`🟢 Created: ${created.length}, ⏭️ Skipped: ${skipped.length}, 🗑️ Deleted: ${deleted.length}, ❌ Failed: ${failed.length}`);
     return {
       statusCode: 200,
       body: JSON.stringify({ created, skipped, deleted, failed }),
