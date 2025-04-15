@@ -1,22 +1,4 @@
-const fs = require("fs");
-const path = require("path");
-const fetch = (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
-
-const PENDING_PATH = path.join("/tmp", "pending-orders.json");
-
-function savePendingOrder(entry) {
-  try {
-    let data = [];
-    if (fs.existsSync(PENDING_PATH)) {
-      data = JSON.parse(fs.readFileSync(PENDING_PATH, "utf-8"));
-    }
-    data.push(entry);
-    fs.writeFileSync(PENDING_PATH, JSON.stringify(data, null, 2));
-    console.log("📝 Saved to pending orders:", entry);
-  } catch (err) {
-    console.error("❌ Failed to save pending order:", err.message);
-  }
-}
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 exports.handler = async (event) => {
   console.log("📦 Shopify webhook received.");
@@ -29,26 +11,24 @@ exports.handler = async (event) => {
   let shopifyOrder;
   try {
     shopifyOrder = JSON.parse(event.body);
-    console.log("✅ Webhook JSON parsed successfully.");
+    console.log("✅ Webhook JSON parsed.");
   } catch (err) {
-    console.error("❌ Invalid JSON in webhook:", err.message);
+    console.error("❌ Invalid JSON:", err.message);
     return { statusCode: 400, body: "Invalid JSON" };
   }
 
-  const lineItem = shopifyOrder.line_items?.[0];
-  const sku = lineItem?.sku;
+  const sku = shopifyOrder.line_items?.[0]?.sku;
   const customerEmail = shopifyOrder.email;
   const shopifyOrderId = shopifyOrder.id;
 
   if (!sku || !customerEmail || !shopifyOrderId) {
-    console.error("❌ Missing SKU, email, or order ID.");
-    return { statusCode: 400, body: "Missing required data" };
+    console.error("❌ Missing SKU, email or order ID.");
+    return { statusCode: 400, body: "Missing required info" };
   }
 
-  console.log("🔍 Extracted values:");
-  console.log("   → SKU:", sku);
-  console.log("   → Email:", customerEmail);
-  console.log("   → Shopify Order ID:", shopifyOrderId);
+  console.log("🔍 SKU:", sku);
+  console.log("📧 Email:", customerEmail);
+  console.log("🛍️ Shopify Order ID:", shopifyOrderId);
 
   // Fetch Mobimatter products
   console.log("🌐 Fetching Mobimatter products...");
@@ -60,15 +40,14 @@ exports.handler = async (event) => {
   });
 
   const data = await productRes.json();
-  const products = data?.result || [];
+  const product = data?.result?.find(p => p.uniqueId === sku);
 
-  const product = products.find((p) => p.uniqueId === sku);
   if (!product) {
-    console.error("❌ Product with SKU not found in Mobimatter.");
+    console.error("❌ Product not found in Mobimatter.");
     return { statusCode: 404, body: "Product not found" };
   }
 
-  console.log("✅ Found Mobimatter product:", product.productId);
+  console.log("✅ Found Mobimatter productId:", product.productId);
 
   // Create Mobimatter order
   console.log("📝 Creating Mobimatter order...");
@@ -86,37 +65,60 @@ exports.handler = async (event) => {
     }),
   });
 
-  const text = await orderRes.text();
-  let result;
-  try {
-    result = JSON.parse(text);
-  } catch (err) {
-    console.error("❌ Invalid response from Mobimatter /v2/order:", text);
-    return { statusCode: 500, body: "Mobimatter order creation failed" };
-  }
+  const orderJson = await orderRes.json();
+  const mobimatterOrderId = orderJson?.result?.orderId;
 
-  const mobimatterOrderId = result?.result?.orderId;
   if (!mobimatterOrderId) {
-    console.error("❌ Mobimatter orderId missing in response.");
-    return { statusCode: 500, body: "Order ID missing from Mobimatter response" };
+    console.error("❌ Mobimatter order creation failed:", orderJson);
+    return { statusCode: 500, body: "Mobimatter order failed" };
   }
 
   console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-  // Save to pending order list (for background QR check)
-  savePendingOrder({
-    mobimatterOrderId,
-    shopifyOrderId,
-    customerEmail,
-    sku,
-    createdAt: new Date().toISOString(),
+  // Try to fetch activation info immediately
+  console.log("🔍 Checking QR code...");
+  const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
+    headers: {
+      "api-key": MOBIMATTER_API_KEY,
+      merchantId: MOBIMATTER_MERCHANT_ID,
+    },
   });
 
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      message: "Mobimatter order created. QR will be processed in background.",
-      mobimatterOrderId,
-    }),
-  };
+  const qrJson = await qrRes.json();
+  const activation = qrJson?.result?.activation;
+  const imageUrl = activation?.imageUrl;
+
+  if (imageUrl) {
+    console.log("✅ QR code is ready. Sending Mobimatter confirmation email...");
+
+    const confirmRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-confirmation", {
+      method: "POST",
+      headers: {
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ orderId: mobimatterOrderId }),
+    });
+
+    const confirmStatus = confirmRes.status;
+    console.log(`📧 Email send status: ${confirmStatus}`);
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: "Order created and confirmation email sent.",
+        orderId: mobimatterOrderId,
+      }),
+    };
+  } else {
+    console.warn("⏳ QR not ready yet. Mobimatter won't send email now.");
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: "Order created, but QR code not ready yet. Email not sent.",
+        orderId: mobimatterOrderId,
+      }),
+    };
+  }
 };
