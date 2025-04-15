@@ -9,6 +9,10 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
+const getCountryName = (code) => {
+  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+};
+
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -22,11 +26,8 @@ const buildDescription = (product, details) => {
     .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
     .join("");
 
-  const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
-    ? "weeks"
-    : details.PLAN_VALIDITY?.toLowerCase().includes("month")
-    ? "months"
-    : "days";
+  const rawValidity = details.PLAN_VALIDITY || "";
+  const normalizedValidity = /\d+\s*(day|week|month)/i.test(rawValidity) ? rawValidity : `${rawValidity} days`;
 
   return `
     <div class="esim-description">
@@ -36,7 +37,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${validityUnit}</p>
+      <p><strong>Validity:</strong> ${normalizedValidity}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -70,51 +71,24 @@ exports.handler = async () => {
     });
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
-
-    const data = await response.json();
-    const products = data?.result;
-
-    if (!Array.isArray(products)) {
-      console.error("Mobimatter API response is invalid:", data);
-      throw new Error("Mobimatter API did not return a valid products array");
-    }
-
+    const { result: products } = await response.json();
     console.log(`Fetched ${products.length} products`);
 
-    for (const product of products.slice(0, 3000)) {
+    for (const product of products.slice(0, 30)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
-      // ✅ New handle check using GraphQL
-      const handleQuery = `
+      const checkRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
         {
-          products(first: 1, query: "handle:${handle}") {
-            edges {
-              node {
-                id
-                title
-              }
-            }
-          }
-        }
-      `;
-
-      const handleCheckRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
-        {
-          method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
-          body: JSON.stringify({ query: handleQuery }),
         }
       );
-
-      const handleCheckJson = await handleCheckRes.json();
-      const existingEdges = handleCheckJson?.data?.products?.edges || [];
-
-      if (existingEdges.length > 0) {
+      const { products: existing } = await checkRes.json();
+      if (existing.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
@@ -126,29 +100,70 @@ exports.handler = async () => {
 
         const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
-        const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
-          ? "weeks"
-          : details.PLAN_VALIDITY?.toLowerCase().includes("month")
-          ? "months"
-          : "days";
-        const validityValue = `${details.PLAN_VALIDITY || ""} ${validityUnit}`.trim();
+
+        const rawValidity = details.PLAN_VALIDITY || "";
+        const normalizedValidity = /\d+\s*(day|week|month)/i.test(rawValidity) ? rawValidity : `${rawValidity} days`;
 
         const metafields = [
-          { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
-          { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
-          { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
-          { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityValue },
-          { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
-          { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
-          { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
-          { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
+          {
+            namespace: "esim",
+            key: "fiveg",
+            type: "single_line_text_field",
+            value: details.FIVEG === "1" ? "📶 5G" : "📱 4G",
+          },
+          {
+            namespace: "esim",
+            key: "countries",
+            type: "single_line_text_field",
+            value: countriesText,
+          },
+          {
+            namespace: "esim",
+            key: "topup",
+            type: "single_line_text_field",
+            value: details.TOPUP === "1" ? "Available" : "Not Available",
+          },
+          {
+            namespace: "esim",
+            key: "validity",
+            type: "single_line_text_field",
+            value: normalizedValidity,
+          },
+          {
+            namespace: "esim",
+            key: "data_limit",
+            type: "single_line_text_field",
+            value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim(),
+          },
+          {
+            namespace: "esim",
+            key: "calls",
+            type: "single_line_text_field",
+            value: details.HAS_CALLS === "1"
+              ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available")
+              : "Not available",
+          },
+          {
+            namespace: "esim",
+            key: "sms",
+            type: "single_line_text_field",
+            value: details.HAS_SMS === "1"
+              ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available")
+              : "Not available",
+          },
+          {
+            namespace: "esim",
+            key: "provider_logo",
+            type: "single_line_text_field",
+            value: product.providerLogo || "",
+          },
         ];
 
         const tags = [
           `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
           ...countryNames,
           details.FIVEG === "1" ? "5G" : "4G",
-          validityValue,
+          normalizedValidity,
           ...(details.SPEED ? [details.SPEED] : []),
           ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
           ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
@@ -207,7 +222,6 @@ exports.handler = async () => {
           const numericId = shopifyId.split("/").pop();
           console.log(`Created product ${title} with ID ${numericId}`);
 
-          // Upload provider logo as image
           if (product.providerLogo?.startsWith("http")) {
             await fetch(
               `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
@@ -222,7 +236,6 @@ exports.handler = async () => {
             );
           }
 
-          // Update variant pricing
           const variantRes = await fetch(
             `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
             {
