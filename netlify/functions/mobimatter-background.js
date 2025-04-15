@@ -60,7 +60,7 @@ exports.handler = async () => {
   const created = [], skipped = [], failed = [], deleted = [];
 
   try {
-    console.log("Fetching from Mobimatter API...");
+    console.log("📡 Fetching from Mobimatter API...");
     const response = await fetch(MOBIMATTER_API_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
@@ -79,8 +79,8 @@ exports.handler = async () => {
 
     const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
 
-    // 🔥 Step 1: Clean up old Shopify products
-    console.log("Checking for products to delete...");
+    // 🔥 Step 1: Delete old Shopify products
+    console.log("🧹 Checking for products to delete...");
     let hasNextPage = true;
     let cursor = null;
 
@@ -88,16 +88,10 @@ exports.handler = async () => {
       const query = `
         {
           products(first: 50, ${cursor ? `after: "${cursor}",` : ""} query: "handle:mobimatter-") {
-            pageInfo {
-              hasNextPage
-            }
+            pageInfo { hasNextPage }
             edges {
               cursor
-              node {
-                id
-                title
-                handle
-              }
+              node { id title handle }
             }
           }
         }
@@ -119,25 +113,17 @@ exports.handler = async () => {
       const edges = json?.data?.products?.edges || [];
 
       for (const edge of edges) {
-        const handle = edge.node.handle;
-        const id = edge.node.id;
-        const title = edge.node.title;
-
+        const { id, title, handle } = edge.node;
         if (!mobimatterHandles.has(handle)) {
-          // Not found in Mobimatter, delete it
-          console.log(`🗑️ Deleting old Shopify product: ${title}`);
+          console.log(`🗑️ Deleting: ${title}`);
           const deleteMutation = `
             mutation {
               productDelete(input: { id: "${id}" }) {
                 deletedProductId
-                userErrors {
-                  field
-                  message
-                }
+                userErrors { field message }
               }
             }
           `;
-
           const deleteRes = await fetch(
             `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
             {
@@ -149,12 +135,10 @@ exports.handler = async () => {
               body: JSON.stringify({ query: deleteMutation }),
             }
           );
-
           const deleteJson = await deleteRes.json();
           const errors = deleteJson?.data?.productDelete?.userErrors || [];
-
           if (errors.length) {
-            console.error(`Failed to delete ${title}:`, errors);
+            console.error(`❌ Failed to delete ${title}:`, errors);
           } else {
             deleted.push(title);
           }
@@ -165,22 +149,16 @@ exports.handler = async () => {
       cursor = edges.length ? edges[edges.length - 1].cursor : null;
     }
 
-    // 🔁 Step 2: Create or skip products
+    // 🔁 Step 2: Create products
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       const handleQuery = `
         {
           products(first: 1, query: "handle:${handle}") {
-            edges {
-              node {
-                id
-                title
-              }
-            }
+            edges { node { id title } }
           }
         }
       `;
-
       const handleCheckRes = await fetch(
         `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
         {
@@ -192,11 +170,10 @@ exports.handler = async () => {
           body: JSON.stringify({ query: handleQuery }),
         }
       );
-
       const handleCheckJson = await handleCheckRes.json();
       const existingEdges = handleCheckJson?.data?.products?.edges || [];
-
       if (existingEdges.length > 0) {
+        console.log(`⏭️ Skipped (already exists): ${product.productFamilyName}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
       }
@@ -271,27 +248,29 @@ exports.handler = async () => {
         const shopifyId = json?.data?.productCreate?.product?.id;
 
         if (userErrors?.length) {
-          console.error(`Errors creating product ${title}:`, userErrors);
+          console.error(`❌ Failed to create ${title}:`, userErrors);
           failed.push({ title, reason: userErrors.map(e => e.message).join(", ") });
           continue;
         }
 
-        if (shopifyId) created.push(title);
+        if (shopifyId) {
+          console.log(`✅ Created: ${title}`);
+          created.push(title);
+        }
       } catch (err) {
-        console.error(`Error syncing product:`, err.message);
+        console.error(`❌ Error syncing ${product.productFamilyName || "Unnamed"}:`, err.message);
         failed.push({ title: product.productFamilyName || "Unnamed", reason: err.message });
       }
     }
 
+    console.log(`✅ Sync complete.`);
+    console.log(`🟢 Created: ${created.length}, ⏭️ Skipped: ${skipped.length}, 🗑️ Deleted: ${deleted.length}, ❌ Failed: ${failed.length}`);
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        message: `Created ${created.length}, Skipped ${skipped.length}, Deleted ${deleted.length}, Failed ${failed.length}`,
-        created, skipped, deleted, failed,
-      }),
+      body: JSON.stringify({ created, skipped, deleted, failed }),
     };
   } catch (err) {
-    console.error("Fatal error:", err.message);
+    console.error("🔥 Fatal error:", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
