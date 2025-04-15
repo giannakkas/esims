@@ -8,8 +8,11 @@ exports.handler = async (event) => {
     MOBIMATTER_MERCHANT_ID,
   } = process.env;
 
+  // 1. Parse Webhook Body Safely
   let shopifyOrder;
   try {
+    if (!event.body) throw new Error("No body provided");
+    console.log("📄 Raw body:", event.body);
     shopifyOrder = JSON.parse(event.body);
     console.log("✅ Webhook JSON parsed.");
   } catch (err) {
@@ -17,21 +20,23 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: "Invalid JSON" };
   }
 
+  // 2. Extract Needed Info
   const sku = shopifyOrder.line_items?.[0]?.sku;
   const customerEmail = shopifyOrder.email;
   const shopifyOrderId = shopifyOrder.id;
 
   if (!sku || !customerEmail || !shopifyOrderId) {
-    console.error("❌ Missing SKU, email or order ID.");
-    return { statusCode: 400, body: "Missing required info" };
+    console.error("❌ Missing SKU, email, or order ID.");
+    return { statusCode: 400, body: "Missing required order data" };
   }
 
-  console.log("🔍 SKU:", sku);
-  console.log("📧 Email:", customerEmail);
-  console.log("🛍️ Shopify Order ID:", shopifyOrderId);
+  console.log("🔍 Extracted:");
+  console.log("→ SKU:", sku);
+  console.log("→ Email:", customerEmail);
+  console.log("→ Shopify Order ID:", shopifyOrderId);
 
-  // Fetch Mobimatter products
-  console.log("🌐 Fetching Mobimatter products...");
+  // 3. Fetch Mobimatter Products
+  console.log("🌐 Fetching Mobimatter /v2 products...");
   const productRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
     headers: {
       "api-key": MOBIMATTER_API_KEY,
@@ -39,17 +44,17 @@ exports.handler = async (event) => {
     },
   });
 
-  const data = await productRes.json();
-  const product = data?.result?.find(p => p.uniqueId === sku);
+  const productData = await productRes.json();
+  const product = productData?.result?.find(p => p.uniqueId === sku);
 
   if (!product) {
-    console.error("❌ Product not found in Mobimatter.");
-    return { statusCode: 404, body: "Product not found" };
+    console.error("❌ Product not found for SKU:", sku);
+    return { statusCode: 404, body: "Product not found in Mobimatter" };
   }
 
   console.log("✅ Found Mobimatter productId:", product.productId);
 
-  // Create Mobimatter order
+  // 4. Create Mobimatter Order
   console.log("📝 Creating Mobimatter order...");
   const orderRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
     method: "POST",
@@ -69,14 +74,14 @@ exports.handler = async (event) => {
   const mobimatterOrderId = orderJson?.result?.orderId;
 
   if (!mobimatterOrderId) {
-    console.error("❌ Mobimatter order creation failed:", orderJson);
-    return { statusCode: 500, body: "Mobimatter order failed" };
+    console.error("❌ Failed to create Mobimatter order:", orderJson);
+    return { statusCode: 500, body: "Mobimatter order creation failed" };
   }
 
   console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-  // Try to fetch activation info immediately
-  console.log("🔍 Checking QR code...");
+  // 5. Check if QR Code is Ready
+  console.log("🔍 Fetching QR code from Mobimatter...");
   const qrRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
     headers: {
       "api-key": MOBIMATTER_API_KEY,
@@ -85,11 +90,13 @@ exports.handler = async (event) => {
   });
 
   const qrJson = await qrRes.json();
+  console.log("📦 Full QR JSON:", JSON.stringify(qrJson));
+
   const activation = qrJson?.result?.activation;
   const imageUrl = activation?.imageUrl;
 
   if (imageUrl) {
-    console.log("✅ QR code is ready. Sending Mobimatter confirmation email...");
+    console.log("✅ QR code ready. Sending Mobimatter confirmation email...");
 
     const confirmRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-confirmation", {
       method: "POST",
@@ -101,22 +108,20 @@ exports.handler = async (event) => {
       body: JSON.stringify({ orderId: mobimatterOrderId }),
     });
 
-    const confirmStatus = confirmRes.status;
-    console.log(`📧 Email send status: ${confirmStatus}`);
-
+    console.log("📧 Email send status:", confirmRes.status);
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: "Order created and confirmation email sent.",
+        message: "Order placed and email sent.",
         orderId: mobimatterOrderId,
       }),
     };
   } else {
-    console.warn("⏳ QR not ready yet. Mobimatter won't send email now.");
+    console.warn("⏳ QR not ready. Skipping email.");
     return {
       statusCode: 200,
       body: JSON.stringify({
-        message: "Order created, but QR code not ready yet. Email not sent.",
+        message: "Order placed, QR code not ready. Email not sent.",
         orderId: mobimatterOrderId,
       }),
     };
