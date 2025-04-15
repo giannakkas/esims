@@ -62,3 +62,49 @@ const buildDescription = (product, details) => {
     </div>
   `;
 };
+
+exports.handler = async () => {
+  const {
+    MOBIMATTER_API_KEY,
+    MOBIMATTER_MERCHANT_ID,
+    SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+    SHOPIFY_API_VERSION = "2025-04",
+  } = process.env;
+
+  const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const created = [], skipped = [], failed = [];
+
+  try {
+    console.log("Fetching from Mobimatter API...");
+    const response = await fetch(MOBIMATTER_API_URL, {
+      headers: {
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID,
+      },
+    });
+
+    if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    const { result: products } = await response.json();
+    console.log(`Fetched ${products.length} products`);
+
+    // ✅ Add product processing logic here as needed (creation, metafields, etc.)
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        message: "Fetched products successfully.",
+        fetched: products.length,
+      }),
+    };
+  } catch (err) {
+    console.error("Fatal error:", err.message);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Mobimatter fetch or Shopify sync failed",
+        message: err.message,
+      }),
+    };
+  }
+};
