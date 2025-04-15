@@ -1,4 +1,3 @@
-// ✅ Use dynamic import for node-fetch (to avoid issues in Netlify functions)
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const getCountryDisplay = (code) => {
@@ -10,10 +9,6 @@ const getCountryDisplay = (code) => {
   return `${flag} ${name || code}`;
 };
 
-const getCountryName = (code) => {
-  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
-};
-
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -22,26 +17,16 @@ const getProductDetails = (product) => {
   return details;
 };
 
-const normalizeValidity = (value) => {
-  if (!value) return "";
-  const match = value.match(/(\d+(\.\d+)?)/);
-  const num = match ? parseFloat(match[1]) : null;
-  if (!num) return value;
-
-  if (/week/i.test(value)) return `${Math.round(num * 7)} Days`;
-  if (/month/i.test(value)) return `${Math.round(num * 30)} Days`;
-  if (/year/i.test(value)) return `${Math.round(num * 365)} Days`;
-  if (/day/i.test(value)) return `${Math.round(num)} Days`;
-
-  return `${Math.round(num)} Days`;
-};
-
 const buildDescription = (product, details) => {
   const countries = (product.countries || [])
     .map((c) => `<li>${getCountryDisplay(c)}</li>`) 
     .join("");
 
-  const normalizedValidity = normalizeValidity(details.PLAN_VALIDITY);
+  const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+    ? "weeks"
+    : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+    ? "months"
+    : "days";
 
   return `
     <div class="esim-description">
@@ -51,7 +36,7 @@ const buildDescription = (product, details) => {
         <ul>${countries}</ul>
       </div>
       <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${normalizedValidity}</p>
+      <p><strong>Validity:</strong> ${details.PLAN_VALIDITY || "?"} ${validityUnit}</p>
       <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
       ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
       ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
@@ -85,24 +70,51 @@ exports.handler = async () => {
     });
 
     if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
-    const { result: products } = await response.json();
+
+    const data = await response.json();
+    const products = data?.result;
+
+    if (!Array.isArray(products)) {
+      console.error("Mobimatter API response is invalid:", data);
+      throw new Error("Mobimatter API did not return a valid products array");
+    }
+
     console.log(`Fetched ${products.length} products`);
 
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       console.log(`Checking if product exists: ${handle}`);
 
-      const checkRes = await fetch(
-        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products.json?handle=${handle}`,
+      // ✅ New handle check using GraphQL
+      const handleQuery = `
         {
+          products(first: 1, query: "handle:${handle}") {
+            edges {
+              node {
+                id
+                title
+              }
+            }
+          }
+        }
+      `;
+
+      const handleCheckRes = await fetch(
+        `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`,
+        {
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
             "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
           },
+          body: JSON.stringify({ query: handleQuery }),
         }
       );
-      const { products: existing } = await checkRes.json();
-      if (existing.length > 0) {
+
+      const handleCheckJson = await handleCheckRes.json();
+      const existingEdges = handleCheckJson?.data?.products?.edges || [];
+
+      if (existingEdges.length > 0) {
         console.log(`Skipping duplicate by handle: ${handle}`);
         skipped.push(product.productFamilyName || "Unnamed");
         continue;
@@ -111,9 +123,36 @@ exports.handler = async () => {
       try {
         const details = getProductDetails(product);
         const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-        const countryNames = (product.countries || []).map(getCountryName);
+
+        const countryNames = (product.countries || []).map(getCountryDisplay);
         const countriesText = countryNames.join(", ");
-        const validityValue = normalizeValidity(details.PLAN_VALIDITY);
+        const validityUnit = details.PLAN_VALIDITY?.toLowerCase().includes("week")
+          ? "weeks"
+          : details.PLAN_VALIDITY?.toLowerCase().includes("month")
+          ? "months"
+          : "days";
+        const validityValue = `${details.PLAN_VALIDITY || ""} ${validityUnit}`.trim();
+
+        const metafields = [
+          { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+          { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
+          { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
+          { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityValue },
+          { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+          { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
+          { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
+          { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
+        ];
+
+        const tags = [
+          `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
+          ...countryNames,
+          details.FIVEG === "1" ? "5G" : "4G",
+          validityValue,
+          ...(details.SPEED ? [details.SPEED] : []),
+          ...(details.HAS_CALLS === "1" ? [(details.CALL_MINUTES ? `${details.CALL_MINUTES} mins` : "Calls Available")] : []),
+          ...(details.HAS_SMS === "1" ? [(details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "SMS Available")] : []),
+        ];
 
         const input = {
           title,
@@ -121,13 +160,9 @@ exports.handler = async () => {
           descriptionHtml: buildDescription(product, details),
           vendor: product.providerName || "Mobimatter",
           productType: "eSIM",
-          tags: [
-            `${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}`,
-            ...countryNames,
-            details.FIVEG === "1" ? "5G" : "4G",
-            validityValue,
-          ],
+          tags,
           published: true,
+          metafields,
         };
 
         const mutation = `
@@ -169,6 +204,59 @@ exports.handler = async () => {
         }
 
         if (shopifyId) {
+          const numericId = shopifyId.split("/").pop();
+          console.log(`Created product ${title} with ID ${numericId}`);
+
+          // Upload provider logo as image
+          if (product.providerLogo?.startsWith("http")) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({ image: { src: product.providerLogo } }),
+              }
+            );
+          }
+
+          // Update variant pricing
+          const variantRes = await fetch(
+            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+            }
+          );
+
+          const { variants } = await variantRes.json();
+          const variantId = variants[0]?.id;
+
+          if (variantId) {
+            await fetch(
+              `https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`,
+              {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+                },
+                body: JSON.stringify({
+                  variant: {
+                    id: variantId,
+                    price: (product.retailPrice || 0).toFixed(2),
+                    sku: product.uniqueId,
+                    inventory_quantity: 999999,
+                  },
+                }),
+              }
+            );
+          }
+
           created.push(title);
         }
       } catch (err) {
@@ -191,10 +279,7 @@ exports.handler = async () => {
     console.error("Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({
-        error: "Mobimatter fetch or Shopify sync failed",
-        message: err.message,
-      }),
+      body: JSON.stringify({ error: "Mobimatter fetch or Shopify sync failed", message: err.message }),
     };
   }
 };
