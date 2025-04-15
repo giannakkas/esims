@@ -1,111 +1,52 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+// Define the Mobimatter order creation endpoint. Make sure this is the correct one!
+const MOBIMATTER_CREATE_ORDER_URL = 'https://api.mobimatter.com/mobimatter/api/v2/orders';
 
-exports.handler = async (event) => {
-  const {
-    MOBIMATTER_API_KEY,
-    MOBIMATTER_MERCHANT_ID,
-    SHOPIFY_ADMIN_API_KEY,
-    SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION = '2025-04',
-  } = process.env;
-
+async function createMobimatterOrder(orderData) {
   try {
-    const body = JSON.parse(event.body);
-    const orderId = body.id;
-    const email = body.email;
-    const lineItems = body.line_items;
+    const response = await fetch(MOBIMATTER_CREATE_ORDER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': process.env.MOBIMATTER_API_KEY,
+        'merchantId': process.env.MOBIMATTER_MERCHANT_ID
+      },
+      body: JSON.stringify(orderData)
+    });
 
-    console.log("📦 New paid order received:", orderId);
-
-    // Loop through line items and trigger Mobimatter order creation
-    for (const item of lineItems) {
-      const productId = item.sku || item.variant_id; // Use SKU as identifier
-      const quantity = item.quantity;
-
-      // 1. Create Mobimatter order
-      const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": MOBIMATTER_API_KEY,
-          "merchantId": MOBIMATTER_MERCHANT_ID,
-        },
-        body: JSON.stringify({
-          productId,
-          quantity,
-          deliveryMethod: "EMAIL",
-          deliveryAddress: email,
-        }),
-      });
-
-      const createData = await createRes.json();
-      const { orderId: mobimatterOrderId } = createData.result || {};
-
-      if (!mobimatterOrderId) {
-        console.error("❌ Failed to create Mobimatter order:", createData);
-        continue;
-      }
-
-      console.log("🧾 Mobimatter order created:", mobimatterOrderId);
-
-      // 2. Complete Mobimatter order
-      await fetch(`https://api.mobimatter.com/mobimatter/api/v2/orders/${mobimatterOrderId}/complete`, {
-        method: "POST",
-        headers: {
-          "api-key": MOBIMATTER_API_KEY,
-          "merchantId": MOBIMATTER_MERCHANT_ID,
-        },
-      });
-
-      console.log("✅ Mobimatter order completed");
-
-      // 3. Get QR code
-      const getRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/orders/${mobimatterOrderId}`, {
-        headers: {
-          "api-key": MOBIMATTER_API_KEY,
-          "merchantId": MOBIMATTER_MERCHANT_ID,
-        },
-      });
-
-      const getData = await getRes.json();
-      const qrCodeUrl = getData.result?.eSimDetails?.qrCodeUrl;
-
-      if (!qrCodeUrl) {
-        console.error("❌ QR code not found:", getData);
-        continue;
-      }
-
-      console.log("📲 QR code fetched:", qrCodeUrl);
-
-      // 4. Save QR code to Shopify order metafield
-      await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${orderId}/metafields.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-        },
-        body: JSON.stringify({
-          metafield: {
-            namespace: "custom",
-            key: "qr_code",
-            value: qrCodeUrl,
-            type: "single_line_text_field"
-          },
-        }),
-      });
-
-      console.log("💾 QR code saved to order:", orderId);
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw { statusCode: response.status, message: errorBody };
     }
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ success: true }),
-    };
+    const result = await response.json();
+    return result;
   } catch (err) {
-    console.error("🔥 Webhook error:", err.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+    console.error('Error creating Mobimatter order:', err);
+    throw err;
   }
+}
+
+// Example usage in your webhook:
+exports.handler = async (event) => {
+  const orderId = /* extract Shopify order id from event */;
+  
+  // Build the order payload for Mobimatter. Make sure to include all required fields.
+  const mobimatterPayload = {
+    shopifyOrderId: orderId,
+    // ... add your details (customer info, product SKU, etc.)
+  };
+
+  try {
+    console.log(`Creating Mobimatter order for Shopify order ${orderId}...`);
+    const mobimatterResult = await createMobimatterOrder(mobimatterPayload);
+    console.log('Mobimatter order created successfully:', mobimatterResult);
+    
+    // Continue with completing the order and retrieving the QR code, etc.
+    
+  } catch (err) {
+    console.error(`Failed to create Mobimatter order for order ${orderId}:`, err);
+    // Return appropriate error response
+    return { statusCode: 500, body: JSON.stringify({ error: err.message || err }) };
+  }
+  // ... further processing and setting order metafields in Shopify ...
 };
