@@ -74,7 +74,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
 
-    for (const product of products.slice(0, 5)) {
+    for (const product of products.slice(0, 5000)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       const checkQuery = `{
