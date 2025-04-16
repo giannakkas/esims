@@ -118,7 +118,7 @@ exports.handler = async (event) => {
 
         console.warn("❌ Not found yet:", data);
       } catch (err) {
-        console.error(`❌ Error during retry ${i + 1}:", err.message);
+        console.error(`❌ Error during retry ${i + 1}: ${err.message}`);
       }
 
       await new Promise((resolve) => setTimeout(resolve, 10000));
