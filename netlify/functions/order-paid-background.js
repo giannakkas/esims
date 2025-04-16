@@ -33,6 +33,8 @@ exports.handler = async (event) => {
 
     const lineItem = lineItems[0];
     const productId = lineItem.sku;
+    const customerName = `${order?.customer?.first_name || ''} ${order?.customer?.last_name || ''}`.trim();
+    const merchantOrderId = order?.id?.toString();
     console.log("🔎 Extracted product ID from SKU:", productId);
 
     console.log("📡 Creating Mobimatter order...");
@@ -91,29 +93,53 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: "Mobimatter order completion failed" };
     }
 
-    // 🔄 Lookup internal order ID for email
     console.log("🔍 Fetching internal order ID for email sending...");
-    const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
-      headers: {
-        'api-key': MOBIMATTER_API_KEY,
-        'merchantid': MOBIMATTER_MERCHANT_ID,
-      },
-    });
+    let internalOrderId = null;
 
-    const lookupData = await lookupRes.json();
-    const internalOrderId = lookupData?.result?.id;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      console.log(`🔁 Attempt ${attempt} to fetch internal ID for ${externalOrderCode}`);
+      const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
+        headers: {
+          'api-key': MOBIMATTER_API_KEY,
+          'merchantid': MOBIMATTER_MERCHANT_ID,
+        },
+      });
+
+      const lookupData = await lookupRes.json();
+      internalOrderId = lookupData?.result?.id;
+
+      if (internalOrderId) break;
+
+      console.warn(`❌ Not found yet:`, lookupData);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
 
     if (!internalOrderId) {
       console.error(`❌ Could not fetch internal order ID for ${externalOrderCode}`);
     } else {
-      const emailRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer`, {
+      const emailBody = {
+        orderId: externalOrderCode,
+        customer: {
+          id: email,
+          name: customerName || "Shopify Customer",
+          email: email,
+          ccEmail: email,
+          phone: order?.phone || "",
+        },
+        amountCharged: parseFloat(order?.total_price || 0),
+        currency: order?.currency || "USD",
+        merchantOrderId: merchantOrderId,
+      };
+
+      const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'text/plain',
           'api-key': MOBIMATTER_API_KEY,
           'merchantid': MOBIMATTER_MERCHANT_ID,
         },
-        body: JSON.stringify({ orderId: internalOrderId, customerEmail: email }),
+        body: JSON.stringify(emailBody),
       });
 
       const emailText = await emailRes.text();
