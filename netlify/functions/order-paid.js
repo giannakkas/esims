@@ -34,7 +34,8 @@ exports.handler = async (event) => {
 
     console.log("🌐 Fetching Mobimatter /v2 products...");
     const headers = {
-      "api-key": MOBIMATTER_API_KEY,
+      "Content-Type": "application/json",
+      "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
       merchantId: MOBIMATTER_MERCHANT_ID,
     };
     console.log("📬 Headers sent to Mobimatter:", headers);
@@ -74,7 +75,7 @@ exports.handler = async (event) => {
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch(`${MOBIMATTER_API_BASE}/order`, {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers: { ...headers },
       body: JSON.stringify({ productId, email }),
     });
 
@@ -124,7 +125,7 @@ exports.handler = async (event) => {
     console.log("✅ Completing Mobimatter order...");
     const completeRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/complete`, {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers: { ...headers },
       body: JSON.stringify({}),
     });
 
@@ -134,7 +135,7 @@ exports.handler = async (event) => {
     console.log("📧 Sending confirmation email via Mobimatter...");
     const sendRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
       method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers: { ...headers },
       body: JSON.stringify({ email }),
     });
 
