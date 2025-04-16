@@ -14,7 +14,7 @@ exports.handler = async (event) => {
       MOBIMATTER_MERCHANT_ID,
     } = process.env;
 
-    // === Validate API credentials ===
+    // === Validate credentials ===
     if (!MOBIMATTER_API_KEY || !MOBIMATTER_MERCHANT_ID) {
       console.error("❌ Missing API credentials in environment variables");
       return {
@@ -59,7 +59,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantId": MOBIMATTER_MERCHANT_ID,
+        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
       },
       body: JSON.stringify({
         productUniqueId: productId,
@@ -89,7 +89,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantId": MOBIMATTER_MERCHANT_ID,
+        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
       },
     });
 
@@ -112,7 +112,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantId": MOBIMATTER_MERCHANT_ID,
+        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
       },
       body: JSON.stringify({
         orderId,
