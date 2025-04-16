@@ -112,7 +112,7 @@ exports.handler = async (event) => {
     }
 
     // === 3. Complete Mobimatter Order ===
-    console.log("📡 Completing Mobimatter order...");
+    console.log("📡 Completing Mobimatter order with ID:", internalOrderId);
 
     const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalOrderId}/complete`, {
       method: "POST",
@@ -123,10 +123,15 @@ exports.handler = async (event) => {
       },
     });
 
+    const completeText = await completeRes.text();
+    console.log("📥 Mobimatter complete response:", completeText);
+
     if (!completeRes.ok) {
-      const errText = await completeRes.text();
-      console.error(`❌ Failed to complete order ${internalOrderId}:`, errText);
-      return { statusCode: 500, body: "Mobimatter order completion failed" };
+      console.error(`❌ Failed to complete order ${internalOrderId}`);
+      return {
+        statusCode: 500,
+        body: "Mobimatter order completion failed",
+      };
     }
 
     console.log("✅ Completed Mobimatter order:", internalOrderId);
