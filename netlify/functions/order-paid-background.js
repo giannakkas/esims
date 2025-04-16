@@ -45,7 +45,6 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID,
       },
       body: JSON.stringify(createBody),
     });
@@ -69,7 +68,6 @@ exports.handler = async (event) => {
           'Content-Type': 'application/json',
           'Accept': 'text/plain',
           'api-key': MOBIMATTER_API_KEY,
-          'merchantid': MOBIMATTER_MERCHANT_ID,
         },
         body: JSON.stringify({
           orderId: externalOrderCode,
@@ -93,6 +91,9 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: "Mobimatter order completion failed" };
     }
 
+    console.log("⏳ Waiting before internal ID lookup...");
+    await new Promise(resolve => setTimeout(resolve, 10000));
+
     console.log("🔍 Fetching internal order ID for email sending...");
     let internalOrderId = null;
 
@@ -101,16 +102,21 @@ exports.handler = async (event) => {
       const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
         headers: {
           'api-key': MOBIMATTER_API_KEY,
-          'merchantid': MOBIMATTER_MERCHANT_ID,
         },
       });
 
-      const lookupData = await lookupRes.json();
-      internalOrderId = lookupData?.result?.id;
+      try {
+        const lookupData = await lookupRes.json();
+        internalOrderId = lookupData?.result?.id;
 
-      if (internalOrderId) break;
+        if (internalOrderId) break;
 
-      console.warn(`❌ Not found yet:`, lookupData);
+        console.warn(`❌ Not found yet:`, lookupData);
+      } catch (err) {
+        const fallbackText = await lookupRes.text();
+        console.warn(`❌ Error or non-JSON response:`, fallbackText);
+      }
+
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
@@ -137,7 +143,6 @@ exports.handler = async (event) => {
           'Content-Type': 'application/json',
           'Accept': 'text/plain',
           'api-key': MOBIMATTER_API_KEY,
-          'merchantid': MOBIMATTER_MERCHANT_ID,
         },
         body: JSON.stringify(emailBody),
       });
