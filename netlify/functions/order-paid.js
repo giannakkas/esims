@@ -14,7 +14,9 @@ exports.handler = async (event) => {
       MOBIMATTER_MERCHANT_ID,
     } = process.env;
 
-    // === Validate credentials ===
+    console.log("🔑 Mobimatter Merchant ID:", MOBIMATTER_MERCHANT_ID);
+    console.log("🔐 Mobimatter API Key Present:", !!MOBIMATTER_API_KEY);
+
     if (!MOBIMATTER_API_KEY || !MOBIMATTER_MERCHANT_ID) {
       console.error("❌ Missing API credentials in environment variables");
       return {
@@ -37,7 +39,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: "Invalid order data" };
     }
 
-    const lineItem = lineItems[0]; // Assuming one eSIM per order
+    const lineItem = lineItems[0];
     const productId = lineItem.sku;
 
     console.log("🔎 Extracted product ID from SKU:", productId);
@@ -54,17 +56,21 @@ exports.handler = async (event) => {
     // === 1. Create Mobimatter Order ===
     console.log("📡 Creating Mobimatter order...");
 
+    const createBody = {
+      productUniqueId: productId,
+      customerEmail: email,
+    };
+
+    console.log("📦 Request payload to Mobimatter:", createBody);
+
     const createOrderRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
+        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase header
       },
-      body: JSON.stringify({
-        productUniqueId: productId,
-        customerEmail: email,
-      }),
+      body: JSON.stringify(createBody),
     });
 
     const createOrderData = await createOrderRes.json();
@@ -89,7 +95,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
+        "merchantid": MOBIMATTER_MERCHANT_ID,
       },
     });
 
@@ -112,7 +118,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase key
+        "merchantid": MOBIMATTER_MERCHANT_ID,
       },
       body: JSON.stringify({
         orderId,
