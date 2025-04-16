@@ -91,26 +91,42 @@ exports.handler = async (event) => {
       return { statusCode: 500, body: "Mobimatter order completion failed" };
     }
 
-    const emailRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer`, {
-      method: 'POST',
+    // 🔄 Lookup internal order ID for email
+    console.log("🔍 Fetching internal order ID for email sending...");
+    const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
       headers: {
-        'Content-Type': 'application/json',
         'api-key': MOBIMATTER_API_KEY,
         'merchantid': MOBIMATTER_MERCHANT_ID,
       },
-      body: JSON.stringify({ orderId: externalOrderCode, customerEmail: email }),
     });
 
-    const emailText = await emailRes.text();
-    console.log(`📧 Email response:`, emailText);
+    const lookupData = await lookupRes.json();
+    const internalOrderId = lookupData?.result?.id;
 
-    if (!emailRes.ok) {
-      console.error(`❌ Email failed to send for ${externalOrderCode}`);
+    if (!internalOrderId) {
+      console.error(`❌ Could not fetch internal order ID for ${externalOrderCode}`);
+    } else {
+      const emailRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': MOBIMATTER_API_KEY,
+          'merchantid': MOBIMATTER_MERCHANT_ID,
+        },
+        body: JSON.stringify({ orderId: internalOrderId, customerEmail: email }),
+      });
+
+      const emailText = await emailRes.text();
+      console.log(`📧 Email response:`, emailText);
+
+      if (!emailRes.ok) {
+        console.error(`❌ Email failed to send for ${externalOrderCode}`);
+      }
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "eSIM order completed and email sent", orderId: externalOrderCode }),
+      body: JSON.stringify({ message: "eSIM order completed and email attempted", orderId: externalOrderCode }),
     };
   } catch (err) {
     console.error("❌ Unexpected error:", err);
