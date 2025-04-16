@@ -3,6 +3,7 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 const MOBIMATTER_API_BASE = "https://api.mobimatter.com/mobimatter/api/v2";
 const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
+const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
 
 exports.handler = async (event) => {
   try {
@@ -33,8 +34,8 @@ exports.handler = async (event) => {
 
     console.log("🌐 Fetching Mobimatter /v2 products...");
     const headers = {
-      "Content-Type": "application/json",
-      "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
+      "api-key": MOBIMATTER_API_KEY,
+      merchantId: MOBIMATTER_MERCHANT_ID,
     };
     console.log("📬 Headers sent to Mobimatter:", headers);
 
@@ -73,7 +74,7 @@ exports.handler = async (event) => {
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch(`${MOBIMATTER_API_BASE}/order`, {
       method: "POST",
-      headers,
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ productId, email }),
     });
 
@@ -91,7 +92,7 @@ exports.handler = async (event) => {
       const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+      console.log(`📄 Status check response attempt ${attempt}:", statusText);
 
       let statusJson;
       try {
@@ -123,7 +124,7 @@ exports.handler = async (event) => {
     console.log("✅ Completing Mobimatter order...");
     const completeRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/complete`, {
       method: "POST",
-      headers,
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
 
@@ -133,7 +134,7 @@ exports.handler = async (event) => {
     console.log("📧 Sending confirmation email via Mobimatter...");
     const sendRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
       method: "POST",
-      headers,
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
 
