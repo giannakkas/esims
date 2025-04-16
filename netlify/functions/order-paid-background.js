@@ -1,27 +1,5 @@
 // === /netlify/functions/order-paid-background.js ===
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-const fs = require('fs');
-
-const PENDING_PATH = '/tmp/pending-esims.json';
-
-const readPending = () => {
-  try {
-    if (!fs.existsSync(PENDING_PATH)) return [];
-    const content = fs.readFileSync(PENDING_PATH, 'utf8');
-    return JSON.parse(content || '[]');
-  } catch (err) {
-    console.error('❌ Failed to read pending-esims.json:', err);
-    return [];
-  }
-};
-
-const writePending = (orders) => {
-  try {
-    fs.writeFileSync(PENDING_PATH, JSON.stringify(orders, null, 2));
-  } catch (err) {
-    console.error('❌ Failed to write pending-esims.json:', err);
-  }
-};
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -80,36 +58,6 @@ exports.handler = async (event) => {
 
     console.log("✅ Created Mobimatter order:", externalOrderCode);
 
-    let internalOrderId = null;
-    for (let i = 1; i <= 5; i++) {
-      console.log(`🔁 Attempt ${i} to fetch internal ID for ${externalOrderCode}`);
-      const res = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
-        headers: {
-          "Content-Type": "application/json",
-          "api-key": MOBIMATTER_API_KEY,
-          "merchantid": MOBIMATTER_MERCHANT_ID,
-        },
-      });
-      const data = await res.json();
-      if (res.ok && data?.result?.id) {
-        internalOrderId = data.result.id;
-        break;
-      }
-      console.log("❌ Not found yet:", data);
-      await new Promise((resolve) => setTimeout(resolve, 10000));
-    }
-
-    if (!internalOrderId) {
-      console.warn(`🕓 Order not ready, adding to pending queue: ${externalOrderCode}`);
-      const pending = readPending();
-      pending.push({ externalOrderCode, email });
-      writePending(pending);
-      return {
-        statusCode: 202,
-        body: JSON.stringify({ message: "Queued for retry", orderId: externalOrderCode })
-      };
-    }
-
     let completeSuccess = false;
     for (let i = 1; i <= 3; i++) {
       console.log(`🚀 Attempt ${i} to complete order ${externalOrderCode}`);
@@ -150,19 +98,19 @@ exports.handler = async (event) => {
         'api-key': MOBIMATTER_API_KEY,
         'merchantid': MOBIMATTER_MERCHANT_ID,
       },
-      body: JSON.stringify({ orderId: internalOrderId, customerEmail: email }),
+      body: JSON.stringify({ orderId: externalOrderCode, customerEmail: email }),
     });
 
     const emailText = await emailRes.text();
     console.log(`📧 Email response:`, emailText);
 
     if (!emailRes.ok) {
-      console.error(`❌ Email failed to send for ${internalOrderId}`);
+      console.error(`❌ Email failed to send for ${externalOrderCode}`);
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "eSIM order completed and email sent", orderId: internalOrderId }),
+      body: JSON.stringify({ message: "eSIM order completed and email sent", orderId: externalOrderCode }),
     };
   } catch (err) {
     console.error("❌ Unexpected error:", err);
