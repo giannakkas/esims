@@ -7,6 +7,7 @@ const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
 exports.handler = async (event) => {
   try {
     console.log("📦 Shopify webhook received.");
+    console.log("🧪 MOBIMATTER_API_KEY present:", !!MOBIMATTER_API_KEY);
 
     if (!event.body) {
       console.error("❌ Invalid JSON: No body provided");
@@ -26,6 +27,7 @@ exports.handler = async (event) => {
     console.log("→ Shopify Order ID:", shopifyOrderId);
 
     if (!sku || !email) {
+      console.error("❌ Missing SKU or email");
       return { statusCode: 400, body: "Missing SKU or email" };
     }
 
@@ -36,9 +38,20 @@ exports.handler = async (event) => {
         "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
       },
     });
-    const productsJson = await productsRes.json();
 
-    console.log("📦 Full Mobimatter products response:", JSON.stringify(productsJson, null, 2));
+    const productsText = await productsRes.text();
+    console.log("📦 Raw Mobimatter products response:", productsText);
+
+    let productsJson;
+    try {
+      productsJson = JSON.parse(productsText);
+    } catch (parseErr) {
+      console.error("❌ Failed to parse Mobimatter response JSON:", parseErr.message);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Invalid JSON from Mobimatter" }),
+      };
+    }
 
     const products = Array.isArray(productsJson.result)
       ? productsJson.result
@@ -49,7 +62,10 @@ exports.handler = async (event) => {
     console.log("📦 Mobimatter products returned:", products.length);
 
     const matched = products.find((p) => p.uniqueId === sku);
-    if (!matched) throw new Error("Product not found in Mobimatter");
+    if (!matched) {
+      console.error("❌ Product not found in Mobimatter:", sku);
+      return { statusCode: 404, body: "Product not found in Mobimatter" };
+    }
 
     const productId = matched.productId;
     console.log("✅ Found Mobimatter productId:", productId);
@@ -63,7 +79,10 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({ productId, email }),
     });
-    const createJson = await createRes.json();
+
+    const createText = await createRes.text();
+    console.log("📄 Create order response:", createText);
+    const createJson = JSON.parse(createText);
     const mobimatterOrderId = createJson.result?.orderId;
     if (!mobimatterOrderId) throw new Error("Failed to create Mobimatter order");
 
@@ -79,7 +98,18 @@ exports.handler = async (event) => {
           "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
         },
       });
-      const statusJson = await statusRes.json();
+
+      const statusText = await statusRes.text();
+      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+
+      let statusJson;
+      try {
+        statusJson = JSON.parse(statusText);
+      } catch (e) {
+        console.error("❌ Failed to parse status response JSON:", e.message);
+        continue;
+      }
+
       activation = statusJson.result?.activation;
 
       if (activation?.imageUrl) {
@@ -110,13 +140,12 @@ exports.handler = async (event) => {
       body: JSON.stringify({}),
     });
 
-    if (!completeRes.ok) {
-      throw new Error("Failed to complete Mobimatter order");
-    }
+    const completeText = await completeRes.text();
+    console.log("📄 Complete order response:", completeText);
 
     // 📧 Send confirmation email using Mobimatter API
     console.log("📧 Sending confirmation email via Mobimatter...");
-    await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
+    const sendRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -124,6 +153,9 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({ email }),
     });
+
+    const sendText = await sendRes.text();
+    console.log("📨 Send email response:", sendText);
 
     return {
       statusCode: 200,
