@@ -57,7 +57,7 @@ exports.handler = async (event) => {
     console.log("📡 Creating Mobimatter order...");
 
     const createBody = {
-      productId: productId, // ✅ KEY FIXED HERE
+      productId: productId,
       customerEmail: email,
     };
 
@@ -68,7 +68,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase
+        "merchantid": MOBIMATTER_MERCHANT_ID,
       },
       body: JSON.stringify(createBody),
     });
@@ -76,7 +76,9 @@ exports.handler = async (event) => {
     const createOrderData = await createOrderRes.json();
     console.log("📥 Mobimatter createOrder response:", createOrderData);
 
-    if (!createOrderRes.ok || !createOrderData?.orderId) {
+    const orderId = createOrderData?.result?.orderId;
+
+    if (!createOrderRes.ok || !orderId) {
       console.error("❌ Mobimatter order creation failed:", createOrderData);
       return {
         statusCode: 500,
@@ -84,7 +86,6 @@ exports.handler = async (event) => {
       };
     }
 
-    const orderId = createOrderData.orderId;
     console.log("✅ Created Mobimatter order:", orderId);
 
     // === 2. Complete Mobimatter Order ===
