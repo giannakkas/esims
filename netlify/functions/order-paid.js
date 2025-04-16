@@ -90,7 +90,7 @@ exports.handler = async (event) => {
 
     // === 2. Retry Fetch Internal Order ID ===
     let internalOrderId = null;
-    const maxRetries = 5;
+    const maxRetries = 10; // ⬅️ bumped to 10 retries
 
     for (let i = 0; i < maxRetries; i++) {
       console.log(`🔁 Attempt ${i + 1}: fetching internal order ID for ${externalOrderCode}`);
