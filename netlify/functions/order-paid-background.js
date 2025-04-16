@@ -3,11 +3,12 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 const fs = require('fs');
 const path = require('path');
 
-const PENDING_PATH = '/tmp/pending-esims.json';
+const PENDING_PATH = path.join(__dirname, '..', 'pending-esims.json');
 const readPending = () => {
-  if (!fs.existsSync(PENDING_PATH)) return [];
   try {
-    return JSON.parse(fs.readFileSync(PENDING_PATH, 'utf8'));
+    if (!fs.existsSync(PENDING_PATH)) return [];
+    const content = fs.readFileSync(PENDING_PATH, 'utf8');
+    return JSON.parse(content || '[]');
   } catch (err) {
     console.error('❌ Failed to read pending-esims.json:', err);
     return [];
