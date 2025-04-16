@@ -33,8 +33,6 @@ exports.handler = async (event) => {
 
     const lineItem = lineItems[0];
     const productId = lineItem.sku;
-    const customerName = `${order?.customer?.first_name || ''} ${order?.customer?.last_name || ''}`.trim();
-    const merchantOrderId = order?.id?.toString();
     console.log("🔎 Extracted product ID from SKU:", productId);
 
     console.log("📡 Creating Mobimatter order...");
@@ -49,7 +47,17 @@ exports.handler = async (event) => {
       body: JSON.stringify(createBody),
     });
 
-    const createOrderData = await createOrderRes.json();
+    const rawText = await createOrderRes.text();
+    console.log("📨 Raw createOrder response:", rawText);
+
+    let createOrderData;
+    try {
+      createOrderData = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("❌ Could not parse createOrder response:", parseErr);
+      return { statusCode: 500, body: "Failed to parse Mobimatter response" };
+    }
+
     const externalOrderCode = createOrderData?.result?.orderId;
 
     if (!createOrderRes.ok || !externalOrderCode) {
@@ -76,7 +84,7 @@ exports.handler = async (event) => {
       });
 
       const completeText = await completeRes.text();
-      console.log(`📥 Completion response:`, completeText);
+      console.log("📥 Completion response:", completeText);
 
       if (completeRes.ok) {
         completeSuccess = true;
