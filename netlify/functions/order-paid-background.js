@@ -1,4 +1,25 @@
+// === /netlify/functions/order-paid-background.js ===
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const fs = require('fs');
+const path = require('path');
+
+const PENDING_PATH = '/tmp/pending-esims.json';
+const readPending = () => {
+  if (!fs.existsSync(PENDING_PATH)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(PENDING_PATH, 'utf8'));
+  } catch (err) {
+    console.error('❌ Failed to read pending-esims.json:', err);
+    return [];
+  }
+};
+const writePending = (orders) => {
+  try {
+    fs.writeFileSync(PENDING_PATH, JSON.stringify(orders, null, 2));
+  } catch (err) {
+    console.error('❌ Failed to write pending-esims.json:', err);
+  }
+};
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -46,9 +67,7 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: "Missing productId (SKU) in order item" };
     }
 
-    // === 1. Create Mobimatter Order ===
     console.log("📡 Creating Mobimatter order...");
-
     const createBody = { productId, customerEmail: email };
     console.log("📦 Request payload to Mobimatter:", createBody);
 
@@ -73,7 +92,6 @@ exports.handler = async (event) => {
 
     console.log("✅ Created Mobimatter order:", externalOrderCode);
 
-    // === 2. Retry Fetch Internal Order ID ===
     console.log("⏳ Looking up internal Mobimatter order ID...");
 
     let internalOrderId = null;
@@ -100,20 +118,25 @@ exports.handler = async (event) => {
 
         console.warn("❌ Not found yet:", data);
       } catch (err) {
-        console.error(`❌ Error during retry ${i + 1}:`, err.message);
+        console.error(`❌ Error during retry ${i + 1}:", err.message);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 10000)); // ⏱ 10s delay
+      await new Promise((resolve) => setTimeout(resolve, 10000));
     }
 
     if (!internalOrderId) {
-      console.error("❌ Failed to fetch internal Mobimatter order ID after retries.");
-      return { statusCode: 500, body: "Failed to fetch internal Mobimatter order ID" };
+      console.warn(`🕓 Order not ready, adding to pending queue: ${externalOrderCode}`);
+      const pending = readPending();
+      pending.push({ externalOrderCode, email });
+      writePending(pending);
+
+      return {
+        statusCode: 202,
+        body: JSON.stringify({ message: "Queued for retry", orderId: externalOrderCode })
+      };
     }
 
-    // === 3. Complete Mobimatter Order ===
     console.log("📡 Completing Mobimatter order with ID:", internalOrderId);
-
     const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalOrderId}/complete`, {
       method: "POST",
       headers: {
@@ -128,15 +151,10 @@ exports.handler = async (event) => {
 
     if (!completeRes.ok) {
       console.error(`❌ Failed to complete order ${internalOrderId}`);
-      return {
-        statusCode: 500,
-        body: "Mobimatter order completion failed",
-      };
+      return { statusCode: 500, body: "Mobimatter order completion failed" };
     }
 
     console.log("✅ Completed Mobimatter order:", internalOrderId);
-
-    // === 4. Send Confirmation Email ===
     console.log("📧 Sending confirmation email to customer...");
 
     const sendEmailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer", {
@@ -146,10 +164,7 @@ exports.handler = async (event) => {
         "api-key": MOBIMATTER_API_KEY,
         "merchantid": MOBIMATTER_MERCHANT_ID,
       },
-      body: JSON.stringify({
-        orderId: internalOrderId,
-        customerEmail: email,
-      }),
+      body: JSON.stringify({ orderId: internalOrderId, customerEmail: email }),
     });
 
     const sendEmailData = await sendEmailRes.json();
