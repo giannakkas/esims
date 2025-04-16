@@ -50,11 +50,16 @@ exports.handler = async (event) => {
     const rawText = await createOrderRes.text();
     console.log("📨 Raw createOrder response:", rawText);
 
+    if (!rawText) {
+      console.error("❌ Empty response from Mobimatter createOrder API");
+      return { statusCode: 500, body: "Empty response from Mobimatter API" };
+    }
+
     let createOrderData;
     try {
       createOrderData = JSON.parse(rawText);
     } catch (parseErr) {
-      console.error("❌ Could not parse createOrder response:", parseErr);
+      console.error("❌ Could not parse createOrder response:", parseErr, "\nRaw response was:", rawText);
       return { statusCode: 500, body: "Failed to parse Mobimatter response" };
     }
 
