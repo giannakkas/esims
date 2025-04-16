@@ -77,7 +77,7 @@ exports.handler = async (event) => {
     console.log("⏳ Looking up internal Mobimatter order ID...");
 
     let internalOrderId = null;
-    const maxRetries = 8;
+    const maxRetries = 15; // ⬅️ Updated here
 
     for (let i = 0; i < maxRetries; i++) {
       try {
@@ -103,7 +103,7 @@ exports.handler = async (event) => {
         console.error(`❌ Error during retry ${i + 1}:`, err.message);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1s delay
     }
 
     if (!internalOrderId) {
