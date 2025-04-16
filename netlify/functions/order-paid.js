@@ -57,7 +57,7 @@ exports.handler = async (event) => {
     console.log("📡 Creating Mobimatter order...");
 
     const createBody = {
-      productId: productId,
+      productId,
       customerEmail: email,
     };
 
@@ -76,9 +76,9 @@ exports.handler = async (event) => {
     const createOrderData = await createOrderRes.json();
     console.log("📥 Mobimatter createOrder response:", createOrderData);
 
-    const orderId = createOrderData?.result?.orderId;
+    const externalOrderCode = createOrderData?.result?.orderId;
 
-    if (!createOrderRes.ok || !orderId) {
+    if (!createOrderRes.ok || !externalOrderCode) {
       console.error("❌ Mobimatter order creation failed:", createOrderData);
       return {
         statusCode: 500,
@@ -86,12 +86,36 @@ exports.handler = async (event) => {
       };
     }
 
-    console.log("✅ Created Mobimatter order:", orderId);
+    console.log("✅ Created Mobimatter order:", externalOrderCode);
 
-    // === 2. Complete Mobimatter Order ===
+    // === 2. Get Internal Order ID by external code ===
+    console.log("📡 Fetching internal order ID for:", externalOrderCode);
+
+    const internalOrderRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
+      headers: {
+        "Content-Type": "application/json",
+        "api-key": MOBIMATTER_API_KEY,
+        "merchantid": MOBIMATTER_MERCHANT_ID,
+      },
+    });
+
+    const internalOrderData = await internalOrderRes.json();
+    const internalOrderId = internalOrderData?.result?.id;
+
+    if (!internalOrderRes.ok || !internalOrderId) {
+      console.error("❌ Failed to fetch internal Mobimatter order ID:", internalOrderData);
+      return {
+        statusCode: 500,
+        body: "Failed to fetch internal Mobimatter order ID",
+      };
+    }
+
+    console.log("✅ Internal order ID:", internalOrderId);
+
+    // === 3. Complete Mobimatter Order ===
     console.log("📡 Completing Mobimatter order...");
 
-    const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/complete`, {
+    const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalOrderId}/complete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -102,16 +126,16 @@ exports.handler = async (event) => {
 
     if (!completeRes.ok) {
       const errText = await completeRes.text();
-      console.error(`❌ Failed to complete order ${orderId}:`, errText);
+      console.error(`❌ Failed to complete order ${internalOrderId}:`, errText);
       return {
         statusCode: 500,
         body: "Mobimatter order completion failed",
       };
     }
 
-    console.log("✅ Completed Mobimatter order:", orderId);
+    console.log("✅ Completed Mobimatter order:", internalOrderId);
 
-    // === 3. Send Confirmation Email ===
+    // === 4. Send Confirmation Email ===
     console.log("📧 Sending confirmation email to customer...");
 
     const sendEmailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer", {
@@ -122,7 +146,7 @@ exports.handler = async (event) => {
         "merchantid": MOBIMATTER_MERCHANT_ID,
       },
       body: JSON.stringify({
-        orderId,
+        orderId: internalOrderId,
         customerEmail: email,
       }),
     });
@@ -142,7 +166,7 @@ exports.handler = async (event) => {
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "eSIM sent to customer", orderId }),
+      body: JSON.stringify({ message: "eSIM sent to customer", orderId: internalOrderId }),
     };
 
   } catch (err) {
