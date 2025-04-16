@@ -88,29 +88,40 @@ exports.handler = async (event) => {
 
     console.log("✅ Created Mobimatter order:", externalOrderCode);
 
-    // === 2. Get Internal Order ID by external code ===
-    console.log("📡 Fetching internal order ID for:", externalOrderCode);
+    // === 2. Retry Fetch Internal Order ID ===
+    let internalOrderId = null;
+    const maxRetries = 3;
 
-    const internalOrderRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID,
-      },
-    });
+    for (let i = 0; i < maxRetries; i++) {
+      console.log(`🔁 Attempt ${i + 1}: fetching internal order ID for ${externalOrderCode}`);
 
-    const internalOrderData = await internalOrderRes.json();
-    const internalOrderId = internalOrderData?.result?.id;
+      const res = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": MOBIMATTER_API_KEY,
+          "merchantid": MOBIMATTER_MERCHANT_ID,
+        },
+      });
 
-    if (!internalOrderRes.ok || !internalOrderId) {
-      console.error("❌ Failed to fetch internal Mobimatter order ID:", internalOrderData);
+      const data = await res.json();
+
+      if (res.ok && data?.result?.id) {
+        internalOrderId = data.result.id;
+        console.log("✅ Internal order ID found:", internalOrderId);
+        break;
+      }
+
+      console.warn("❌ Not found yet:", data);
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // wait 1 second
+    }
+
+    if (!internalOrderId) {
+      console.error("❌ Failed to fetch internal Mobimatter order ID after retries.");
       return {
         statusCode: 500,
         body: "Failed to fetch internal Mobimatter order ID",
       };
     }
-
-    console.log("✅ Internal order ID:", internalOrderId);
 
     // === 3. Complete Mobimatter Order ===
     console.log("📡 Completing Mobimatter order...");
