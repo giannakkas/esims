@@ -77,11 +77,11 @@ exports.handler = async (event) => {
     console.log("⏳ Looking up internal Mobimatter order ID...");
 
     let internalOrderId = null;
-    const maxRetries = 15; // ⬅️ Updated here
+    const maxRetries = 5;
 
     for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`🔁 Attempt ${i + 1}: fetching internal order ID for ${externalOrderCode}`);
+        console.log(`🔁 Attempt ${i + 1} of ${maxRetries}: fetching internal order ID for ${externalOrderCode}`);
         const res = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
           headers: {
             "Content-Type": "application/json",
@@ -103,7 +103,7 @@ exports.handler = async (event) => {
         console.error(`❌ Error during retry ${i + 1}:`, err.message);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1s delay
+      await new Promise((resolve) => setTimeout(resolve, 10000)); // ⏱ 10s delay
     }
 
     if (!internalOrderId) {
