@@ -94,7 +94,7 @@ exports.handler = async (event) => {
       const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:", statusText);
+      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
 
       let statusJson;
       try {
