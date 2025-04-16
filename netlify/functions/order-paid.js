@@ -33,12 +33,13 @@ exports.handler = async (event) => {
     }
 
     console.log("🌐 Fetching Mobimatter /v2 products...");
-    const headers = {
-      "Content-Type": "application/json",
-      "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      "Merchant-Id": MOBIMATTER_MERCHANT_ID,
-    };
-    console.log("📬 Headers sent to Mobimatter:", headers);
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    headers.set("Ocp-Apim-Subscription-Key", MOBIMATTER_API_KEY);
+    headers.set("Merchant-Id", MOBIMATTER_MERCHANT_ID);
+
+    const headersObj = Object.fromEntries(headers.entries());
+    console.log("📬 Headers sent to Mobimatter:", headersObj);
 
     const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products`, { headers });
     const productsText = await productsRes.text();
@@ -75,7 +76,7 @@ exports.handler = async (event) => {
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch(`${MOBIMATTER_API_BASE}/order`, {
       method: "POST",
-      headers: { ...headers },
+      headers,
       body: JSON.stringify({ productId, email }),
     });
 
@@ -93,7 +94,7 @@ exports.handler = async (event) => {
       const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+      console.log(`📄 Status check response attempt ${attempt}:", statusText);
 
       let statusJson;
       try {
@@ -125,7 +126,7 @@ exports.handler = async (event) => {
     console.log("✅ Completing Mobimatter order...");
     const completeRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/complete`, {
       method: "POST",
-      headers: { ...headers },
+      headers,
       body: JSON.stringify({}),
     });
 
@@ -135,7 +136,7 @@ exports.handler = async (event) => {
     console.log("📧 Sending confirmation email via Mobimatter...");
     const sendRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
       method: "POST",
-      headers: { ...headers },
+      headers,
       body: JSON.stringify({ email }),
     });
 
