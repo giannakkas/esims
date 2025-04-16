@@ -5,11 +5,10 @@ functions = "netlify/functions"
   [functions.timeout]
     default = 10  # Timeout in seconds
 
-[[scheduled.functions]]
-function = "mobimatter-background"
-cron = "0 */12 * * *"
-
+[[scheduled]]
+  path = "/.netlify/functions/mobimatter-background"
+  schedule = "0 */12 * * *"
 
 [[scheduled]]
   path = "/.netlify/functions/recover-esims"
-  schedule = "*/10 * * * *"  # every 10 minutes
+  schedule = "*/10 * * * *"
