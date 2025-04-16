@@ -2,8 +2,11 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
+    console.log("⚠️ Invalid method:", event.httpMethod);
     return { statusCode: 405, body: "Method Not Allowed" };
   }
+
+  console.log("📦 Received new Shopify order webhook");
 
   try {
     const {
@@ -11,24 +14,46 @@ exports.handler = async (event) => {
       MOBIMATTER_MERCHANT_ID,
     } = process.env;
 
+    // === Validate API credentials ===
+    if (!MOBIMATTER_API_KEY || !MOBIMATTER_MERCHANT_ID) {
+      console.error("❌ Missing API credentials in environment variables");
+      return {
+        statusCode: 500,
+        body: "Missing Mobimatter API credentials",
+      };
+    }
+
     const order = JSON.parse(event.body);
 
     const email = order?.email;
     const lineItems = order?.line_items || [];
 
-    if (!email || !lineItems.length) {
+    console.log(`🧾 Order ID: ${order?.id}`);
+    console.log(`📧 Customer email: ${email}`);
+    console.log(`🛒 Line items: ${lineItems.length}`);
+
+    if (!email || lineItems.length === 0) {
+      console.error("❌ Missing email or line items in the order payload");
       return { statusCode: 400, body: "Invalid order data" };
     }
 
-    // Get the Mobimatter uniqueId from SKU or product title
-    const lineItem = lineItems[0]; // assuming only 1 eSIM per order
-    const productId = lineItem.sku || lineItem.title.split("mobimatter-")[1];
+    const lineItem = lineItems[0]; // Assuming one eSIM per order
+    const productId = lineItem.sku;
+
+    console.log("🔎 Extracted product ID from SKU:", productId);
+    console.log("🧾 Line item title:", lineItem.title);
 
     if (!productId) {
-      return { statusCode: 400, body: "Product ID not found" };
+      console.error("❌ Missing productUniqueId (SKU) in the order");
+      return {
+        statusCode: 400,
+        body: "Missing productUniqueId (SKU) in order item",
+      };
     }
 
     // === 1. Create Mobimatter Order ===
+    console.log("📡 Creating Mobimatter order...");
+
     const createOrderRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
@@ -43,15 +68,23 @@ exports.handler = async (event) => {
     });
 
     const createOrderData = await createOrderRes.json();
-    const orderId = createOrderData?.orderId;
+    console.log("📥 Mobimatter createOrder response:", createOrderData);
 
-    if (!orderId) {
+    if (!createOrderRes.ok || !createOrderData?.orderId) {
       console.error("❌ Mobimatter order creation failed:", createOrderData);
-      return { statusCode: 500, body: "Failed to create Mobimatter order" };
+      return {
+        statusCode: 500,
+        body: "Mobimatter order creation failed",
+      };
     }
 
+    const orderId = createOrderData.orderId;
+    console.log("✅ Created Mobimatter order:", orderId);
+
     // === 2. Complete Mobimatter Order ===
-    await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/complete`, {
+    console.log("📡 Completing Mobimatter order...");
+
+    const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/complete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -60,8 +93,21 @@ exports.handler = async (event) => {
       },
     });
 
-    // === 3. Send Email Confirmation with QR Code ===
-    await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer", {
+    if (!completeRes.ok) {
+      const errText = await completeRes.text();
+      console.error(`❌ Failed to complete order ${orderId}:`, errText);
+      return {
+        statusCode: 500,
+        body: "Mobimatter order completion failed",
+      };
+    }
+
+    console.log("✅ Completed Mobimatter order:", orderId);
+
+    // === 3. Send Confirmation Email ===
+    console.log("📧 Sending confirmation email to customer...");
+
+    const sendEmailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -74,16 +120,29 @@ exports.handler = async (event) => {
       }),
     });
 
+    const sendEmailData = await sendEmailRes.json();
+    console.log("📥 Mobimatter email send response:", sendEmailData);
+
+    if (!sendEmailRes.ok) {
+      console.error("❌ Failed to send confirmation email:", sendEmailData);
+      return {
+        statusCode: 500,
+        body: "Mobimatter email send failed",
+      };
+    }
+
+    console.log("✅ eSIM confirmation email sent to:", email);
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "eSIM sent to customer!", orderId }),
+      body: JSON.stringify({ message: "eSIM sent to customer", orderId }),
     };
 
   } catch (err) {
-    console.error("❌ Error handling order:", err);
+    console.error("❌ Uncaught error:", err);
     return {
       statusCode: 500,
-      body: "Internal Server Error",
+      body: "Unexpected error occurred",
     };
   }
 };
