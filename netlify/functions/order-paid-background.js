@@ -81,26 +81,22 @@ exports.handler = async (event) => {
     console.log("✅ Created Mobimatter order:", externalOrderCode);
 
     let internalOrderId = null;
-    for (let i = 0; i < 5; i++) {
-      try {
-        const res = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
-          headers: {
-            "Content-Type": "application/json",
-            "api-key": MOBIMATTER_API_KEY,
-            "merchantid": MOBIMATTER_MERCHANT_ID,
-          },
-        });
-
-        const data = await res.json();
-        if (res.ok && data?.result?.id) {
-          internalOrderId = data.result.id;
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 10000));
-      } catch (err) {
-        console.error(`❌ Error fetching internal ID: ${err.message}`);
+    for (let i = 1; i <= 5; i++) {
+      console.log(`🔁 Attempt ${i} to fetch internal ID for ${externalOrderCode}`);
+      const res = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
+        headers: {
+          "Content-Type": "application/json",
+          "api-key": MOBIMATTER_API_KEY,
+          "merchantid": MOBIMATTER_MERCHANT_ID,
+        },
+      });
+      const data = await res.json();
+      if (res.ok && data?.result?.id) {
+        internalOrderId = data.result.id;
+        break;
       }
+      console.log("❌ Not found yet:", data);
+      await new Promise((resolve) => setTimeout(resolve, 10000));
     }
 
     if (!internalOrderId) {
@@ -108,28 +104,46 @@ exports.handler = async (event) => {
       const pending = readPending();
       pending.push({ externalOrderCode, email });
       writePending(pending);
-
       return {
         statusCode: 202,
         body: JSON.stringify({ message: "Queued for retry", orderId: externalOrderCode })
       };
     }
 
-    const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalOrderId}/complete`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': MOBIMATTER_API_KEY,
-        'merchantid': MOBIMATTER_MERCHANT_ID,
-      },
-    });
+    let completeSuccess = false;
+    for (let i = 1; i <= 3; i++) {
+      console.log(`🚀 Attempt ${i} to complete order ${externalOrderCode}`);
+      const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/plain',
+          'api-key': MOBIMATTER_API_KEY,
+          'merchantid': MOBIMATTER_MERCHANT_ID,
+        },
+        body: JSON.stringify({
+          orderId: externalOrderCode,
+          notes: 'Auto-completed by Shopify integration'
+        }),
+      });
 
-    if (!completeRes.ok) {
-      console.error(`❌ Failed to complete order ${internalOrderId}`);
+      const completeText = await completeRes.text();
+      console.log(`📥 Completion response:`, completeText);
+
+      if (completeRes.ok) {
+        completeSuccess = true;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+
+    if (!completeSuccess) {
+      console.error(`❌ Could not complete order ${externalOrderCode} after retries`);
       return { statusCode: 500, body: "Mobimatter order completion failed" };
     }
 
-    await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer`, {
+    const emailRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/send-order-confirmation-to-customer`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,9 +153,16 @@ exports.handler = async (event) => {
       body: JSON.stringify({ orderId: internalOrderId, customerEmail: email }),
     });
 
+    const emailText = await emailRes.text();
+    console.log(`📧 Email response:`, emailText);
+
+    if (!emailRes.ok) {
+      console.error(`❌ Email failed to send for ${internalOrderId}`);
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ message: "eSIM sent to customer", orderId: internalOrderId }),
+      body: JSON.stringify({ message: "eSIM order completed and email sent", orderId: internalOrderId }),
     };
   } catch (err) {
     console.error("❌ Unexpected error:", err);
