@@ -36,7 +36,7 @@ exports.handler = async (event) => {
     const headers = {
       "Content-Type": "application/json",
       "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      merchantId: MOBIMATTER_MERCHANT_ID,
+      "Merchant-Id": MOBIMATTER_MERCHANT_ID,
     };
     console.log("📬 Headers sent to Mobimatter:", headers);
 
@@ -93,7 +93,7 @@ exports.handler = async (event) => {
       const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+      console.log(`📄 Status check response attempt ${attempt}:", statusText);
 
       let statusJson;
       try {
