@@ -46,10 +46,10 @@ exports.handler = async (event) => {
     console.log("🧾 Line item title:", lineItem.title);
 
     if (!productId) {
-      console.error("❌ Missing productUniqueId (SKU) in the order");
+      console.error("❌ Missing productId (SKU) in the order");
       return {
         statusCode: 400,
-        body: "Missing productUniqueId (SKU) in order item",
+        body: "Missing productId (SKU) in order item",
       };
     }
 
@@ -57,7 +57,7 @@ exports.handler = async (event) => {
     console.log("📡 Creating Mobimatter order...");
 
     const createBody = {
-      productUniqueId: productId,
+      productId: productId, // ✅ KEY FIXED HERE
       customerEmail: email,
     };
 
@@ -68,7 +68,7 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         "api-key": MOBIMATTER_API_KEY,
-        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase header
+        "merchantid": MOBIMATTER_MERCHANT_ID, // ✅ lowercase
       },
       body: JSON.stringify(createBody),
     });
