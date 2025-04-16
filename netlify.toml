@@ -10,3 +10,6 @@ function = "mobimatter-background"
 cron = "0 */12 * * *"
 
 
+[[scheduled]]
+  path = "/.netlify/functions/recover-esims"
+  schedule = "*/10 * * * *"  # every 10 minutes
