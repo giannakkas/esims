@@ -1,5 +1,5 @@
 // netlify/functions/order-paid.js
-const fetch = require("node-fetch");
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const MOBIMATTER_API_BASE = "https://api.mobimatter.com/mobimatter/api/v2";
 
@@ -106,3 +106,4 @@ exports.handler = async (event) => {
     };
   }
 };
+
