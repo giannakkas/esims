@@ -1,3 +1,4 @@
+// === /netlify/functions/order-paid-background.js ===
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 exports.handler = async (event) => {
@@ -49,7 +50,7 @@ exports.handler = async (event) => {
     });
 
     const createOrderText = await createOrderRes.text();
-    console.log("📨 Raw createOrder response:", createOrderText); // ✅ NEW DEBUG LINE
+    console.log("📨 Raw createOrder response:", createOrderText);
 
     let createOrderData = null;
     try {
