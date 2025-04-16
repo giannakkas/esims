@@ -32,11 +32,15 @@ exports.handler = async (event) => {
     const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products`);
     const productsJson = await productsRes.json();
 
+    console.log("📦 Full Mobimatter products response:", JSON.stringify(productsJson, null, 2));
+
     const products = Array.isArray(productsJson.result)
       ? productsJson.result
       : Array.isArray(productsJson)
       ? productsJson
       : [];
+
+    console.log("📦 Mobimatter products returned:", products.length);
 
     const matched = products.find((p) => p.uniqueId === sku);
     if (!matched) throw new Error("Product not found in Mobimatter");
