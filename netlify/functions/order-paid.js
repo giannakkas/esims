@@ -31,15 +31,14 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: "Missing SKU or email" };
     }
 
-    console.log("🌐 Fetching Mobimatter /v2 products...");
+    console.log("🌐 Fetching Mobimatter /v2 products (search)...");
     const headers = {
       "Content-Type": "application/json",
       "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
     };
     console.log("📬 Headers sent to Mobimatter:", headers);
 
-    const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products`, { headers });
-
+    const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products/search?searchTerm=${sku}`, { headers });
     const productsText = await productsRes.text();
     console.log("📦 Raw Mobimatter products response:", productsText);
 
@@ -62,7 +61,7 @@ exports.handler = async (event) => {
 
     console.log("📦 Mobimatter products returned:", products.length);
 
-    const matched = products.find((p) => p.uniqueId === sku);
+    const matched = products.find((p) => p.uniqueId === sku || p.productId === sku);
     if (!matched) {
       console.error("❌ Product not found in Mobimatter:", sku);
       return { statusCode: 404, body: "Product not found in Mobimatter" };
@@ -92,7 +91,7 @@ exports.handler = async (event) => {
       const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+      console.log(`📄 Status check response attempt ${attempt}:", statusText);
 
       let statusJson;
       try {
