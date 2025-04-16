@@ -32,12 +32,13 @@ exports.handler = async (event) => {
     }
 
     console.log("🌐 Fetching Mobimatter /v2 products...");
-    const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products`, {
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      },
-    });
+    const headers = {
+      "Content-Type": "application/json",
+      "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
+    };
+    console.log("📬 Headers sent to Mobimatter:", headers);
+
+    const productsRes = await fetch(`${MOBIMATTER_API_BASE}/products`, { headers });
 
     const productsText = await productsRes.text();
     console.log("📦 Raw Mobimatter products response:", productsText);
@@ -73,10 +74,7 @@ exports.handler = async (event) => {
     console.log("📝 Creating Mobimatter order...");
     const createRes = await fetch(`${MOBIMATTER_API_BASE}/order`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      },
+      headers,
       body: JSON.stringify({ productId, email }),
     });
 
@@ -88,19 +86,13 @@ exports.handler = async (event) => {
 
     console.log("✅ Mobimatter order created:", mobimatterOrderId);
 
-    // ⏳ Poll for QR readiness (max 10 tries with delay)
     let activation;
     for (let attempt = 1; attempt <= 10; attempt++) {
       console.log(`🔄 Checking QR readiness... attempt ${attempt}`);
-      const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, {
-        headers: {
-          "Content-Type": "application/json",
-          "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-        },
-      });
+      const statusRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}`, { headers });
 
       const statusText = await statusRes.text();
-      console.log(`📄 Status check response attempt ${attempt}:`, statusText);
+      console.log(`📄 Status check response attempt ${attempt}:", statusText);
 
       let statusJson;
       try {
@@ -129,28 +121,20 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ Complete the order
     console.log("✅ Completing Mobimatter order...");
     const completeRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/complete`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      },
+      headers,
       body: JSON.stringify({}),
     });
 
     const completeText = await completeRes.text();
     console.log("📄 Complete order response:", completeText);
 
-    // 📧 Send confirmation email using Mobimatter API
     console.log("📧 Sending confirmation email via Mobimatter...");
     const sendRes = await fetch(`${MOBIMATTER_API_BASE}/order/${mobimatterOrderId}/send-email`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Ocp-Apim-Subscription-Key": MOBIMATTER_API_KEY,
-      },
+      headers,
       body: JSON.stringify({ email }),
     });
 
