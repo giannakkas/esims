@@ -49,7 +49,15 @@ exports.handler = async (event) => {
       body: JSON.stringify(createBody),
     });
 
-    const createOrderData = await createOrderRes.json();
+    const createOrderText = await createOrderRes.text();
+    let createOrderData = null;
+    try {
+      createOrderData = JSON.parse(createOrderText);
+    } catch (e) {
+      console.error("❌ Could not parse createOrder response:", createOrderText);
+      return { statusCode: 500, body: "Invalid JSON from Mobimatter createOrder" };
+    }
+
     const externalOrderCode = createOrderData?.result?.orderId;
 
     if (!createOrderRes.ok || !externalOrderCode) {
