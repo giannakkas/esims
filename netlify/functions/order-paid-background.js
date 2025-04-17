@@ -13,7 +13,7 @@ exports.handler = async (event) => {
     const shopifyOrderId = order?.id;
 
     const productId = lineItem?.sku?.trim();
-    const productCategory = "esim_realtime"; // or dynamic later
+    const productCategory = "esim_realtime";
 
     if (!productId || !email) {
       console.error("❌ Missing SKU or email. Order data:", {
@@ -91,22 +91,27 @@ exports.handler = async (event) => {
       headers: {
         "Content-Type": "application/json",
         Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID
       },
       body: JSON.stringify(completePayload)
     });
 
     const completeText = await completeRes.text();
-    console.log("📬 Complete order response:", completeText);
+    console.log("📬 Complete order response (status:", completeRes.status + "):", completeText);
 
     if (!completeRes.ok) {
       return {
         statusCode: completeRes.status,
-        body: JSON.stringify({ error: "Failed to complete order", details: completeText })
+        body: JSON.stringify({
+          error: "Failed to complete Mobimatter order",
+          status: completeRes.status,
+          response: completeText
+        })
       };
     }
 
-    // 3️⃣ POLL FOR ACTIVATION
+    // 3️⃣ POLL FOR QR ACTIVATION
     const MAX_ATTEMPTS = 6;
     const DELAY_MS = 5000;
     let activationUrl = null;
@@ -157,7 +162,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 4️⃣ RETURN SUCCESS
+    // ✅ DONE
     return {
       statusCode: 200,
       body: JSON.stringify({
