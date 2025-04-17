@@ -1,6 +1,6 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
   try {
     const {
       MOBIMATTER_API_KEY
@@ -9,7 +9,7 @@ exports.handler = async (event) => {
     const order = JSON.parse(event.body);
 
     const lineItem = order?.line_items?.[0];
-    const productId = lineItem?.sku; // SKU must match Mobimatter uniqueId
+    const productId = lineItem?.sku; // Ensure this matches Mobimatter uniqueId
     const email = order?.email;
     const shopifyOrderId = order?.id;
 
@@ -22,11 +22,11 @@ exports.handler = async (event) => {
 
     const createPayload = {
       productId,
-      productCategory: "esim_realtime", // Adjust if needed
+      productCategory: "esim_realtime", // Customize if needed
       label: `ShopifyOrder-${shopifyOrderId}`
     };
 
-    // STEP 1: Create Mobimatter order
+    // STEP 1: Create the order
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
@@ -50,7 +50,7 @@ exports.handler = async (event) => {
 
     console.log("✅ Mobimatter Order Created:", orderId);
 
-    // STEP 2: Complete Mobimatter order
+    // STEP 2: Complete the order
     const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
       method: "PUT",
       headers: {
@@ -77,10 +77,10 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    console.error("❌ Error in order-paid:", err);
+    console.error("❌ order-paid-background error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Server error" })
+      body: JSON.stringify({ error: "Internal Server Error" })
     };
   }
 };
