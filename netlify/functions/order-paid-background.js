@@ -12,7 +12,7 @@ exports.handler = async (event) => {
     const email = order?.email;
     const shopifyOrderId = order?.id;
 
-    const productId = lineItem?.sku?.trim(); // SKU must match Mobimatter productId
+    const productId = lineItem?.sku?.trim();
 
     if (!productId || !email) {
       console.error("❌ Missing SKU or email. Order data:", {
@@ -27,10 +27,9 @@ exports.handler = async (event) => {
       };
     }
 
-    // Construct payload for Mobimatter
     const createPayload = {
       productId,
-      productCategory: "esim_realtime", // Adjust if needed per product
+      productCategory: "esim_realtime",
       label: `ShopifyOrder-${shopifyOrderId}`
     };
 
@@ -61,7 +60,7 @@ exports.handler = async (event) => {
     let orderId;
     try {
       const createData = JSON.parse(createText);
-      orderId = createData?.orderId;
+      orderId = createData?.result?.orderId; // ✅ Correct path
     } catch (err) {
       console.error("❌ JSON parse error from Mobimatter response:", err.message);
       return {
@@ -80,7 +79,7 @@ exports.handler = async (event) => {
 
     console.log("✅ Mobimatter order created:", orderId);
 
-    // Complete the Mobimatter order
+    // Step 2: Complete the Mobimatter order
     const completePayload = {
       orderId,
       notes: `Auto-completed from Shopify order ${shopifyOrderId}`
