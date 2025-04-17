@@ -11,9 +11,13 @@ exports.handler = async (event) => {
     const lineItem = order?.line_items?.[0];
     const email = order?.email;
     const shopifyOrderId = order?.id;
+    const customerName = order?.customer?.first_name + " " + order?.customer?.last_name;
+    const phone = order?.shipping_address?.phone || order?.phone || "";
 
     const productId = lineItem?.sku?.trim();
     const productCategory = "esim_realtime";
+    const amountCharged = parseFloat(order?.total_price || 0);
+    const currency = order?.currency || "USD";
 
     if (!productId || !email) {
       console.error("❌ Missing SKU or email. Order data:", {
@@ -100,13 +104,54 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ DONE — no QR polling
+    // 3️⃣ SEND EMAIL
+    const emailPayload = {
+      orderId,
+      customer: {
+        id: email,
+        name: customerName || email,
+        email: email,
+        ccEmail: email,
+        phone
+      },
+      amountCharged,
+      currency,
+      merchantOrderId: `ShopifyOrder-${shopifyOrderId}`
+    };
+
+    console.log("✉️ Sending Mobimatter email:", emailPayload);
+
+    const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/plain",
+        "api-key": MOBIMATTER_API_KEY
+      },
+      body: JSON.stringify(emailPayload)
+    });
+
+    const emailText = await emailRes.text();
+    console.log("📤 Email response (status:", emailRes.status + "):", emailText);
+
+    if (!emailRes.ok) {
+      return {
+        statusCode: 207,
+        body: JSON.stringify({
+          warning: "Order completed but failed to send Mobimatter email",
+          mobimatterOrderId: orderId,
+          emailResponse: emailText
+        })
+      };
+    }
+
+    // ✅ DONE
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        message: "Mobimatter order created and completed successfully."
+        message: "Order created, completed, and email sent."
       })
     };
 
