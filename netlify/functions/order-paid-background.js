@@ -3,7 +3,8 @@ const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fet
 exports.handler = async (event) => {
   try {
     const {
-      MOBIMATTER_API_KEY
+      MOBIMATTER_API_KEY,
+      MOBIMATTER_MERCHANT_ID
     } = process.env;
 
     const order = JSON.parse(event.body);
@@ -11,7 +12,7 @@ exports.handler = async (event) => {
     const email = order?.email;
     const shopifyOrderId = order?.id;
 
-    const productId = lineItem?.sku?.trim(); // Must match Mobimatter product ID
+    const productId = lineItem?.sku?.trim(); // SKU must match Mobimatter productId
 
     if (!productId || !email) {
       console.error("❌ Missing SKU or email. Order data:", {
@@ -26,22 +27,22 @@ exports.handler = async (event) => {
       };
     }
 
-    // Construct the payload
+    // Construct payload for Mobimatter
     const createPayload = {
       productId,
-      productCategory: "esim_realtime", // Adjust if needed
+      productCategory: "esim_realtime", // Adjust if needed per product
       label: `ShopifyOrder-${shopifyOrderId}`
     };
 
     console.log("📦 Creating Mobimatter order with payload:", createPayload);
 
-    // Create Mobimatter order
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID
       },
       body: JSON.stringify(createPayload)
     });
