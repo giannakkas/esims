@@ -89,7 +89,8 @@ exports.handler = async (event) => {
 
       const statusRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}`, {
         headers: {
-          "api-key": MOBIMATTER_API_KEY
+          "api-key": MOBIMATTER_API_KEY,
+          merchantId: MOBIMATTER_MERCHANT_ID
         }
       });
 
