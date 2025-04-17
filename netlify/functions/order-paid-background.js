@@ -48,21 +48,19 @@ exports.handler = async (event) => {
     });
 
     const contentType = createOrderRes.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      const text = await createOrderRes.text();
+    const rawText = await createOrderRes.text();
+
+    if (!rawText || !contentType.includes('application/json')) {
       console.error("❌ Unexpected content-type from Mobimatter:", contentType);
-      console.error("🔍 Raw response text:", text);
+      console.error("🔍 Raw response text:", rawText);
       return {
         statusCode: 500,
-        body: "Mobimatter response not in JSON format",
+        body: `Unexpected response from Mobimatter: ${rawText || '[empty]'}`,
       };
     }
 
     let createOrderData;
-    let rawText;
-
     try {
-      rawText = await createOrderRes.text();
       console.log("📨 Raw createOrder response:", rawText);
       createOrderData = JSON.parse(rawText);
     } catch (parseErr) {
