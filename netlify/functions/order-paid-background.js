@@ -111,7 +111,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // 3️⃣ Send Mobimatter Email with Detailed Logging
+    // 3️⃣ SEND MOBIMATTER EMAIL
     console.log("✉️ Preparing to send Mobimatter email...");
 
     const emailPayload = {
@@ -136,7 +136,8 @@ exports.handler = async (event) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "text/plain",
-          "api-key": MOBIMATTER_API_KEY
+          "api-key": MOBIMATTER_API_KEY,
+          merchantId: MOBIMATTER_MERCHANT_ID
         },
         body: JSON.stringify(emailPayload)
       });
@@ -172,7 +173,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ DONE
+    // ✅ ALL DONE
     return {
       statusCode: 200,
       body: JSON.stringify({
