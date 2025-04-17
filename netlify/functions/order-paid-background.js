@@ -47,20 +47,33 @@ exports.handler = async (event) => {
       body: JSON.stringify(createBody),
     });
 
-    const rawText = await createOrderRes.text();
-    console.log("📨 Raw createOrder response:", rawText);
-
-    if (!rawText) {
-      console.error("❌ Empty response from Mobimatter createOrder API");
-      return { statusCode: 500, body: "Empty response from Mobimatter API" };
+    const contentType = createOrderRes.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await createOrderRes.text();
+      console.error("❌ Unexpected content-type from Mobimatter:", contentType);
+      console.error("🔍 Raw response text:", text);
+      return {
+        statusCode: 500,
+        body: "Mobimatter response not in JSON format",
+      };
     }
 
     let createOrderData;
+    let rawText;
+
     try {
+      rawText = await createOrderRes.text();
+      console.log("📨 Raw createOrder response:", rawText);
       createOrderData = JSON.parse(rawText);
     } catch (parseErr) {
-      console.error("❌ Could not parse createOrder response:", parseErr, "\nRaw response was:", rawText);
-      return { statusCode: 500, body: "Failed to parse Mobimatter response" };
+      console.error("❌ Could not parse createOrder response as JSON:", parseErr);
+      console.error("🔍 Response status:", createOrderRes.status);
+      console.error("🔍 Response headers:", [...createOrderRes.headers.entries()]);
+      console.error("🔍 Raw response text:", rawText);
+      return {
+        statusCode: 500,
+        body: "Mobimatter createOrder returned unexpected response",
+      };
     }
 
     const externalOrderCode = createOrderData?.result?.orderId;
