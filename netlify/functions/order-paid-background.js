@@ -8,24 +8,34 @@ exports.handler = async (event) => {
 
     const order = JSON.parse(event.body);
     const lineItem = order?.line_items?.[0];
-    const productId = lineItem?.sku;
     const email = order?.email;
     const shopifyOrderId = order?.id;
 
+    const productId = lineItem?.sku?.trim(); // Must match Mobimatter product ID
+
     if (!productId || !email) {
+      console.error("❌ Missing SKU or email. Order data:", {
+        sku: lineItem?.sku,
+        email,
+        orderId: shopifyOrderId
+      });
+
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "Missing productId or email" })
+        body: JSON.stringify({ error: "Missing SKU or email in Shopify order." })
       };
     }
 
+    // Construct the payload
     const createPayload = {
       productId,
-      productCategory: "esim_realtime",
+      productCategory: "esim_realtime", // Adjust if needed
       label: `ShopifyOrder-${shopifyOrderId}`
     };
 
-    // 🔹 STEP 1: Create Mobimatter order
+    console.log("📦 Creating Mobimatter order with payload:", createPayload);
+
+    // Create Mobimatter order
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
@@ -37,13 +47,13 @@ exports.handler = async (event) => {
     });
 
     const createText = await createRes.text();
-    console.log("📨 Mobimatter create response:", createText);
+    console.log("📨 Mobimatter create response (raw):", createText);
 
     if (!createRes.ok) {
-      console.error("❌ Mobimatter create failed");
+      console.error("❌ Mobimatter create API failed with status:", createRes.status);
       return {
         statusCode: createRes.status,
-        body: JSON.stringify({ error: "Mobimatter order creation failed", details: createText })
+        body: JSON.stringify({ error: "Mobimatter order creation failed", response: createText })
       };
     }
 
@@ -52,22 +62,31 @@ exports.handler = async (event) => {
       const createData = JSON.parse(createText);
       orderId = createData?.orderId;
     } catch (err) {
-      console.error("❌ Failed to parse Mobimatter JSON response");
+      console.error("❌ JSON parse error from Mobimatter response:", err.message);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Invalid JSON response from Mobimatter" })
+        body: JSON.stringify({ error: "Failed to parse Mobimatter response" })
       };
     }
 
     if (!orderId) {
-      console.error("❌ No orderId in Mobimatter response");
+      console.error("❌ Missing orderId from Mobimatter:", createText);
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Mobimatter orderId missing" })
+        body: JSON.stringify({ error: "No orderId in Mobimatter response" })
       };
     }
 
-    // 🔹 STEP 2: Complete Mobimatter order
+    console.log("✅ Mobimatter order created:", orderId);
+
+    // Complete the Mobimatter order
+    const completePayload = {
+      orderId,
+      notes: `Auto-completed from Shopify order ${shopifyOrderId}`
+    };
+
+    console.log("🧾 Completing Mobimatter order with payload:", completePayload);
+
     const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
       method: "PUT",
       headers: {
@@ -75,14 +94,11 @@ exports.handler = async (event) => {
         Accept: "text/plain",
         "api-key": MOBIMATTER_API_KEY
       },
-      body: JSON.stringify({
-        orderId,
-        notes: `Auto-completed for Shopify order ${shopifyOrderId}`
-      })
+      body: JSON.stringify(completePayload)
     });
 
     const completeText = await completeRes.text();
-    console.log("✅ Mobimatter Order Completed:", completeText);
+    console.log("✅ Mobimatter complete response:", completeText);
 
     return {
       statusCode: 200,
@@ -94,7 +110,7 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    console.error("❌ order-paid-background error:", err.message);
+    console.error("❌ Fatal error in order-paid-background:", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Internal Server Error", message: err.message })
