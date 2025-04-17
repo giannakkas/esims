@@ -93,7 +93,22 @@ exports.handler = async (event) => {
         }
       });
 
-      const statusJson = await statusRes.json();
+      const statusText = await statusRes.text();
+      console.log(`📡 Poll response (attempt ${attempt}):`, statusText);
+
+      let statusJson = {};
+      if (statusText) {
+        try {
+          statusJson = JSON.parse(statusText);
+        } catch (err) {
+          console.error("❌ Failed to parse order status JSON:", err.message);
+          break;
+        }
+      } else {
+        console.warn("⚠️ Empty status response from Mobimatter");
+        break;
+      }
+
       if (statusJson?.activation?.imageUrl) {
         qrReady = true;
         console.log("✅ Activation is ready with QR code:", statusJson.activation.imageUrl);
