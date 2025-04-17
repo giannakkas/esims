@@ -10,9 +10,6 @@ exports.handler = async (event) => {
     const order = JSON.parse(event.body);
     const lineItem = order?.line_items?.[0];
     const email = order?.email;
-    const customerName = order?.customer?.first_name + ' ' + order?.customer?.last_name;
-    const currency = order?.currency || "EUR";
-    const amount = parseFloat(order?.total_price || 0);
     const shopifyOrderId = order?.id;
 
     const productId = lineItem?.sku?.trim();
@@ -114,35 +111,66 @@ exports.handler = async (event) => {
       };
     }
 
-    // 3️⃣ SEND EMAIL CONFIRMATION
+    // 3️⃣ Send Mobimatter Email with Detailed Logging
+    console.log("✉️ Preparing to send Mobimatter email...");
+
     const emailPayload = {
       orderId,
       customer: {
         id: `${shopifyOrderId}`,
-        name: customerName || email,
+        name: `${order?.shipping_address?.name || "No Name"}`,
         email,
         ccEmail: email,
-        phone: ""
+        phone: order?.shipping_address?.phone || ""
       },
-      amountCharged: amount,
-      currency: currency,
+      amountCharged: Number(order?.total_price || 0),
+      currency: `${order?.currency || "USD"}`,
       merchantOrderId: `ShopifyOrder-${shopifyOrderId}`
     };
 
-    console.log("✉️ Sending Mobimatter email:", emailPayload);
+    console.log("📦 Email Payload:", JSON.stringify(emailPayload, null, 2));
 
-    const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY
-      },
-      body: JSON.stringify(emailPayload)
-    });
+    try {
+      const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/plain",
+          "api-key": MOBIMATTER_API_KEY
+        },
+        body: JSON.stringify(emailPayload)
+      });
 
-    const emailText = await emailRes.text();
-    console.log(`📤 Email response (status ${emailRes.status}):`, emailText);
+      const emailText = await emailRes.text();
+      console.log(`📤 Email response (status ${emailRes.status}):`, emailText);
+
+      if (!emailRes.ok) {
+        console.warn("⚠️ Mobimatter email API returned a non-200 status");
+        return {
+          statusCode: emailRes.status,
+          body: JSON.stringify({
+            success: true,
+            mobimatterOrderId: orderId,
+            message: "Order completed, but email not sent",
+            emailError: emailText
+          })
+        };
+      }
+
+      console.log("✅ Mobimatter email sent successfully");
+
+    } catch (emailErr) {
+      console.error("❌ Email send failed with error:", emailErr.message);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          success: true,
+          mobimatterOrderId: orderId,
+          message: "Order completed, but email failed",
+          error: emailErr.message
+        })
+      };
+    }
 
     // ✅ DONE
     return {
@@ -150,7 +178,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        emailStatus: emailRes.status
+        message: "Order created, completed, and email sent"
       })
     };
 
