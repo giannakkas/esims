@@ -1,4 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const axios = require('axios');
 
 exports.handler = async (event) => {
   try {
@@ -11,13 +12,12 @@ exports.handler = async (event) => {
     const lineItem = order?.line_items?.[0];
     const email = order?.email;
     const shopifyOrderId = order?.id;
-    const customerName = order?.customer?.first_name + " " + order?.customer?.last_name;
-    const phone = order?.shipping_address?.phone || order?.phone || "";
+    const customerName = `${order?.customer?.first_name || ""} ${order?.customer?.last_name || ""}`.trim();
+    const currency = order?.currency || "EUR";
+    const amount = parseFloat(order?.current_total_price || 0);
 
     const productId = lineItem?.sku?.trim();
     const productCategory = "esim_realtime";
-    const amountCharged = parseFloat(order?.total_price || 0);
-    const currency = order?.currency || "USD";
 
     if (!productId || !email) {
       console.error("❌ Missing SKU or email. Order data:", {
@@ -58,15 +58,25 @@ exports.handler = async (event) => {
     if (!createRes.ok) {
       return {
         statusCode: createRes.status,
-        body: JSON.stringify({ error: "Failed to create Mobimatter order", details: createText })
+        body: JSON.stringify({ error: "Failed to create order", details: createText })
       };
     }
 
-    const orderId = JSON.parse(createText)?.result?.orderId;
+    let orderId;
+    try {
+      const createData = JSON.parse(createText);
+      orderId = createData?.result?.orderId;
+    } catch (err) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "Invalid response from create order" })
+      };
+    }
+
     if (!orderId) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: "Mobimatter did not return an order ID." })
+        body: JSON.stringify({ error: "No orderId returned" })
       };
     }
 
@@ -92,71 +102,58 @@ exports.handler = async (event) => {
     });
 
     const completeText = await completeRes.text();
-    console.log("📬 Complete response (status:", completeRes.status + "):", completeText);
+    console.log(`📬 Complete response (status: ${completeRes.status}):`, completeText);
 
     if (!completeRes.ok) {
       return {
         statusCode: completeRes.status,
         body: JSON.stringify({
           error: "Failed to complete Mobimatter order",
+          status: completeRes.status,
           response: completeText
         })
       };
     }
 
-    // 3️⃣ SEND EMAIL
+    // 3️⃣ SEND EMAIL CONFIRMATION
     const emailPayload = {
       orderId,
       customer: {
-        id: email,
+        id: `${shopifyOrderId}`,
         name: customerName || email,
-        email: email,
+        email,
         ccEmail: email,
-        phone
+        phone: ""
       },
-      amountCharged,
-      currency,
+      amountCharged: amount,
+      currency: currency,
       merchantOrderId: `ShopifyOrder-${shopifyOrderId}`
     };
 
     console.log("✉️ Sending Mobimatter email:", emailPayload);
 
-    const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
-      method: "POST",
+    const emailRes = await axios.post("https://api.mobimatter.com/mobimatter/api/v2/email", emailPayload, {
       headers: {
         "Content-Type": "application/json",
         Accept: "text/plain",
         "api-key": MOBIMATTER_API_KEY
-      },
-      body: JSON.stringify(emailPayload)
+      }
     });
 
-    const emailText = await emailRes.text();
-    console.log("📤 Email response (status:", emailRes.status + "):", emailText);
+    console.log("📤 Email sent! Mobimatter response:", emailRes.data);
 
-    if (!emailRes.ok) {
-      return {
-        statusCode: 207,
-        body: JSON.stringify({
-          warning: "Order completed but failed to send Mobimatter email",
-          mobimatterOrderId: orderId,
-          emailResponse: emailText
-        })
-      };
-    }
-
-    // ✅ DONE
+    // ✅ FINAL RESPONSE
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        message: "Order created, completed, and email sent."
+        message: "Order created, completed, and email sent"
       })
     };
 
   } catch (err) {
-    console.error("❌ Unexpected error:", err);
+    console.error("❌ Unexpected error:", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Unexpected error", message: err.message })
