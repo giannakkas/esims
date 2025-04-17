@@ -1,183 +1,145 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+const fetch = require('node-fetch');
 
-exports.handler = async (event) => {
+exports.handler = async (event, context) => {
   try {
-    const {
-      MOBIMATTER_API_KEY,
-      MOBIMATTER_MERCHANT_ID
-    } = process.env;
+    const body = JSON.parse(event.body);
+    const shopifyOrder = body; // webhook payload from Shopify
 
-    const order = JSON.parse(event.body);
-    const lineItem = order?.line_items?.[0];
-    const email = order?.email;
-    const shopifyOrderId = order?.id;
-
-    const productId = lineItem?.sku?.trim();
-    const productCategory = "esim_realtime";
-
-    if (!productId || !email) {
-      console.error("❌ Missing SKU or email. Order data:", {
-        sku: lineItem?.sku,
-        email,
-        orderId: shopifyOrderId
-      });
-
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing SKU or email in Shopify order." })
-      };
+    const lineItem = shopifyOrder.line_items?.[0];
+    if (!lineItem || !lineItem.sku) {
+      console.error("❌ No SKU in order line item");
+      return { statusCode: 400, body: "No SKU found in order" };
     }
 
-    // 1️⃣ CREATE ORDER
-    const createPayload = {
+    const productId = lineItem.sku;
+    const shopifyOrderId = shopifyOrder.id;
+    const customerEmail = shopifyOrder.email;
+
+    const label = `ShopifyOrder-${shopifyOrderId}`;
+    console.log("📦 Creating Mobimatter order with payload:", {
       productId,
-      productCategory,
-      label: `ShopifyOrder-${shopifyOrderId}`
-    };
+      productCategory: "esim_realtime",
+      label,
+    });
 
-    console.log("📦 Creating Mobimatter order with payload:", createPayload);
-
+    // 1. Create the order
     const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${process.env.MOBIMATTER_API_KEY}`,
         "Content-Type": "application/json",
-        Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID
       },
-      body: JSON.stringify(createPayload)
+      body: JSON.stringify({
+        productId,
+        productCategory: "esim_realtime",
+        label,
+      }),
     });
 
-    const createText = await createRes.text();
-    console.log("📨 Mobimatter create response:", createText);
+    const createJson = await createRes.json();
+    console.log("📨 Mobimatter create response:", JSON.stringify(createJson));
 
-    if (!createRes.ok) {
-      return {
-        statusCode: createRes.status,
-        body: JSON.stringify({ error: "Failed to create order", details: createText })
-      };
-    }
-
-    let orderId;
-    try {
-      const createData = JSON.parse(createText);
-      orderId = createData?.result?.orderId;
-    } catch (err) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Invalid response from create order" })
-      };
-    }
-
+    const orderId = createJson.result?.orderId;
     if (!orderId) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "No orderId returned" })
-      };
+      console.error("❌ Failed to create Mobimatter order");
+      return { statusCode: 500, body: "Order creation failed" };
     }
 
     console.log("✅ Order created:", orderId);
 
-    // 2️⃣ COMPLETE ORDER
-    const completePayload = {
-      orderId,
-      notes: `Shopify Order ${shopifyOrderId}`
-    };
+    // 2. Complete the order
+    console.log("🧾 Completing order:", { orderId, notes: `Shopify Order ${shopifyOrderId}` });
 
-    console.log("🧾 Completing order:", completePayload);
-
-    const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
-      method: "PUT",
+    const completeRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/complete`, {
+      method: "POST",
       headers: {
+        Authorization: `Bearer ${process.env.MOBIMATTER_API_KEY}`,
         "Content-Type": "application/json",
-        Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID
       },
-      body: JSON.stringify(completePayload)
+      body: JSON.stringify({
+        notes: `Shopify Order ${shopifyOrderId}`,
+      }),
     });
 
-    const completeText = await completeRes.text();
-    console.log("📬 Complete order response (status:", completeRes.status + "):", completeText);
+    const completeJson = await completeRes.json();
+    console.log("📬 Complete order response (status:", completeRes.status, "):", JSON.stringify(completeJson));
 
-    if (!completeRes.ok) {
-      return {
-        statusCode: completeRes.status,
-        body: JSON.stringify({
-          error: "Failed to complete Mobimatter order",
-          status: completeRes.status,
-          response: completeText
-        })
-      };
-    }
+    // 3. Poll until QR code is ready
+    const qrCode = await pollForQrCode(orderId, customerEmail);
 
-    // 3️⃣ POLL FOR QR ACTIVATION
-    const MAX_ATTEMPTS = 6;
-    const DELAY_MS = 5000;
-    let activationUrl = null;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      console.log(`🔄 Polling order status (attempt ${attempt})...`);
-
-      const statusRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}`, {
-        headers: {
-          "api-key": MOBIMATTER_API_KEY,
-          merchantId: MOBIMATTER_MERCHANT_ID
-        }
-      });
-
-      const statusText = await statusRes.text();
-      console.log(`📡 Status response (${attempt}):`, statusText);
-
-      let statusJson = {};
-      if (statusText) {
-        try {
-          statusJson = JSON.parse(statusText);
-        } catch (err) {
-          console.error("❌ Failed to parse status response:", err.message);
-          break;
-        }
-      }
-
-      activationUrl = statusJson?.result?.activation?.imageUrl;
-
-      if (activationUrl) {
-        console.log("✅ Activation ready:", activationUrl);
-        break;
-      }
-
-      console.log("⏳ Activation not ready yet...");
-      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-    }
-
-    if (!activationUrl) {
+    if (qrCode) {
+      console.log("🎉 Order fulfilled successfully!");
+      return { statusCode: 200, body: "Order fulfilled with QR" };
+    } else {
       console.warn("⚠️ QR not ready after polling. Order is pending.");
-      return {
-        statusCode: 202,
-        body: JSON.stringify({
-          success: true,
-          mobimatterOrderId: orderId,
-          message: "Order completed, but QR not ready yet."
-        })
-      };
+      return { statusCode: 202, body: "Order pending, QR not ready yet" };
     }
-
-    // ✅ DONE
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        mobimatterOrderId: orderId,
-        activationUrl,
-        message: "Order created, completed, and QR ready"
-      })
-    };
-
   } catch (err) {
-    console.error("❌ Unexpected error:", err.message);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Unexpected error", message: err.message })
-    };
+    console.error("❌ Error handling order-paid webhook:", err);
+    return { statusCode: 500, body: "Internal Server Error" };
   }
 };
+
+// ========== Helper Functions ========== //
+
+function isQrCodeReady(details) {
+  const qr = details.find(d => d.name === "QR_CODE")?.value;
+  return qr && qr.startsWith("data:image/");
+}
+
+function extractQrAndEmail(details) {
+  const qrCode = details.find(d => d.name === "QR_CODE")?.value;
+  const email = details.find(d => d.name === "CONFIRMATION_EMAIL")?.value || null;
+  return { qrCode, email };
+}
+
+async function pollForQrCode(orderId, fallbackEmail, maxAttempts = 6, intervalMs = 5000) {
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    attempt++;
+    console.log(`🔄 Polling order status (attempt ${attempt})...`);
+
+    const statusRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}`, {
+      headers: { Authorization: `Bearer ${process.env.MOBIMATTER_API_KEY}` },
+    });
+
+    const statusJson = await statusRes.json();
+    const details = statusJson.result?.orderLineItem?.lineItemDetails || [];
+
+    console.log(`📡 Status response (${attempt}):`, JSON.stringify(statusJson));
+
+    if (isQrCodeReady(details)) {
+      const { qrCode, email } = extractQrAndEmail(details);
+      console.log("✅ QR is ready!");
+      console.log("📎 QR Code (truncated):", qrCode.substring(0, 100));
+
+      // Send email via Mobimatter
+      await sendQrCodeEmail(orderId, email || fallbackEmail);
+      return qrCode;
+    }
+
+    console.log("⏳ Activation not ready yet...");
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+
+  return null;
+}
+
+async function sendQrCodeEmail(orderId, email) {
+  console.log(`📤 Sending QR code email to ${email}`);
+  const res = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/send-email", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.MOBIMATTER_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      orderId,
+      recipientEmail: email,
+    }),
+  });
+
+  const json = await res.json();
+  console.log("📬 Mobimatter email response:", JSON.stringify(json));
+}
