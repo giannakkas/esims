@@ -1,5 +1,4 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-const axios = require('axios');
 
 exports.handler = async (event) => {
   try {
@@ -11,10 +10,10 @@ exports.handler = async (event) => {
     const order = JSON.parse(event.body);
     const lineItem = order?.line_items?.[0];
     const email = order?.email;
-    const shopifyOrderId = order?.id;
-    const customerName = `${order?.customer?.first_name || ""} ${order?.customer?.last_name || ""}`.trim();
+    const customerName = order?.customer?.first_name + ' ' + order?.customer?.last_name;
     const currency = order?.currency || "EUR";
-    const amount = parseFloat(order?.current_total_price || 0);
+    const amount = parseFloat(order?.total_price || 0);
+    const shopifyOrderId = order?.id;
 
     const productId = lineItem?.sku?.trim();
     const productCategory = "esim_realtime";
@@ -132,23 +131,26 @@ exports.handler = async (event) => {
 
     console.log("✉️ Sending Mobimatter email:", emailPayload);
 
-    const emailRes = await axios.post("https://api.mobimatter.com/mobimatter/api/v2/email", emailPayload, {
+    const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "text/plain",
         "api-key": MOBIMATTER_API_KEY
-      }
+      },
+      body: JSON.stringify(emailPayload)
     });
 
-    console.log("📤 Email sent! Mobimatter response:", emailRes.data);
+    const emailText = await emailRes.text();
+    console.log(`📤 Email response (status ${emailRes.status}):`, emailText);
 
-    // ✅ FINAL RESPONSE
+    // ✅ DONE
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        message: "Order created, completed, and email sent"
+        emailStatus: emailRes.status
       })
     };
 
