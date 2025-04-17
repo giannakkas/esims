@@ -1,126 +1,134 @@
+@@ -1,3 +1,4 @@
 // === /netlify/functions/order-paid-background.js ===
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
+@@ -49,127 +50,127 @@
+});
 
-  console.log("📦 Received new Shopify order webhook");
+const createOrderText = await createOrderRes.text();
+    console.log("📨 Raw createOrder response:", createOrderText); // ✅ NEW DEBUG LINE
+    console.log("📨 Raw createOrder response:", createOrderText);
 
-  try {
-    const {
-      MOBIMATTER_API_KEY,
-      MOBIMATTER_MERCHANT_ID,
-    } = process.env;
+let createOrderData = null;
+try {
+createOrderData = JSON.parse(createOrderText);
+} catch (e) {
+console.error("❌ Could not parse createOrder response:", createOrderText);
+return { statusCode: 500, body: "Invalid JSON from Mobimatter createOrder" };
+}
 
-    console.log("🔑 Mobimatter Merchant ID:", MOBIMATTER_MERCHANT_ID);
-    console.log("🔐 Mobimatter API Key Present:", !!MOBIMATTER_API_KEY);
+const externalOrderCode = createOrderData?.result?.orderId;
 
-    if (!MOBIMATTER_API_KEY || !MOBIMATTER_MERCHANT_ID) {
-      console.error("❌ Missing API credentials");
-      return { statusCode: 500, body: "Missing API credentials" };
-    }
+if (!createOrderRes.ok || !externalOrderCode) {
+console.error("❌ Mobimatter order creation failed:", createOrderData);
+return { statusCode: 500, body: "Mobimatter order creation failed" };
+}
 
-    const order = JSON.parse(event.body);
-    const email = order?.email;
-    const lineItems = order?.line_items || [];
+console.log("✅ Created Mobimatter order:", externalOrderCode);
 
-    if (!email || lineItems.length === 0) {
-      console.error("❌ Invalid order payload");
-      return { statusCode: 400, body: "Invalid order payload" };
-    }
+let completeSuccess = false;
+for (let i = 1; i <= 3; i++) {
+console.log(`🚀 Attempt ${i} to complete order ${externalOrderCode}`);
+const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
+method: 'PUT',
+headers: {
+'Content-Type': 'application/json',
+'Accept': 'text/plain',
+'api-key': MOBIMATTER_API_KEY,
+},
+body: JSON.stringify({
+orderId: externalOrderCode,
+notes: 'Auto-completed by Shopify integration'
+}),
+});
 
-    const lineItem = lineItems[0];
-    const productId = lineItem.sku;
-    console.log("🔎 Extracted product ID from SKU:", productId);
+const completeText = await completeRes.text();
+console.log(`📥 Completion response:`, completeText);
 
-    console.log("📡 Creating Mobimatter order...");
-    const createBody = { productId, customerEmail: email };
+if (completeRes.ok) {
+completeSuccess = true;
+break;
+}
 
-    const createOrderRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "api-key": MOBIMATTER_API_KEY,
-      },
-      body: JSON.stringify(createBody),
-    });
+await new Promise(resolve => setTimeout(resolve, 5000));
+}
 
-    const contentType = createOrderRes.headers.get('content-type') || '';
-    const rawText = await createOrderRes.text();
+if (!completeSuccess) {
+console.error(`❌ Could not complete order ${externalOrderCode} after retries`);
+return { statusCode: 500, body: "Mobimatter order completion failed" };
+}
 
-    if (!rawText || !contentType.includes('application/json')) {
-      console.error("❌ Unexpected content-type from Mobimatter:", contentType);
-      console.error("🔍 Raw response text:", rawText);
-      return {
-        statusCode: 500,
-        body: `Unexpected response from Mobimatter: ${rawText || '[empty]'}`,
-      };
-    }
+console.log("⏳ Waiting before internal ID lookup...");
+await new Promise(resolve => setTimeout(resolve, 10000));
 
-    let createOrderData;
-    try {
-      console.log("📨 Raw createOrder response:", rawText);
-      createOrderData = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.error("❌ Could not parse createOrder response as JSON:", parseErr);
-      console.error("🔍 Response status:", createOrderRes.status);
-      console.error("🔍 Response headers:", [...createOrderRes.headers.entries()]);
-      console.error("🔍 Raw response text:", rawText);
-      return {
-        statusCode: 500,
-        body: "Mobimatter createOrder returned unexpected response",
-      };
-    }
+console.log("🔍 Fetching internal order ID for email sending...");
+let internalOrderId = null;
 
-    const externalOrderCode = createOrderData?.result?.orderId;
+for (let attempt = 1; attempt <= 5; attempt++) {
+console.log(`🔁 Attempt ${attempt} to fetch internal ID for ${externalOrderCode}`);
+const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${externalOrderCode}`, {
+headers: {
+'api-key': MOBIMATTER_API_KEY,
+},
+});
 
-    if (!createOrderRes.ok || !externalOrderCode) {
-      console.error("❌ Mobimatter order creation failed:", createOrderData);
-      return { statusCode: 500, body: "Mobimatter order creation failed" };
-    }
+try {
+const lookupData = await lookupRes.json();
+internalOrderId = lookupData?.result?.id;
 
-    console.log("✅ Created Mobimatter order:", externalOrderCode);
+if (internalOrderId) break;
 
-    let completeSuccess = false;
-    for (let i = 1; i <= 3; i++) {
-      console.log(`🚀 Attempt ${i} to complete order ${externalOrderCode}`);
-      const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/plain',
-          'api-key': MOBIMATTER_API_KEY,
-        },
-        body: JSON.stringify({
-          orderId: externalOrderCode,
-          notes: 'Auto-completed by Shopify integration'
-        }),
-      });
+console.warn(`❌ Not found yet:`, lookupData);
+} catch (err) {
+const fallbackText = await lookupRes.text();
+console.warn(`❌ Error or non-JSON response:`, fallbackText);
+}
 
-      const completeText = await completeRes.text();
-      console.log("📥 Completion response:", completeText);
+await new Promise(resolve => setTimeout(resolve, 5000));
+}
 
-      if (completeRes.ok) {
-        completeSuccess = true;
-        break;
-      }
+if (!internalOrderId) {
+console.error(`❌ Could not fetch internal order ID for ${externalOrderCode}`);
+} else {
+const emailBody = {
+orderId: externalOrderCode,
+customer: {
+id: email,
+name: customerName || "Shopify Customer",
+email: email,
+ccEmail: email,
+phone: order?.phone || "",
+},
+amountCharged: parseFloat(order?.total_price || 0),
+currency: order?.currency || "USD",
+merchantOrderId: merchantOrderId,
+};
 
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    }
+const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+'Accept': 'text/plain',
+'api-key': MOBIMATTER_API_KEY,
+},
+body: JSON.stringify(emailBody),
+});
 
-    if (!completeSuccess) {
-      console.error(`❌ Could not complete order ${externalOrderCode} after retries`);
-      return { statusCode: 500, body: "Mobimatter order completion failed" };
-    }
+const emailText = await emailRes.text();
+console.log(`📧 Email response:`, emailText);
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ message: "eSIM order completed", orderId: externalOrderCode }),
-    };
-  } catch (err) {
-    console.error("❌ Unexpected error:", err);
-    return { statusCode: 500, body: "Unexpected error occurred" };
-  }
+if (!emailRes.ok) {
+console.error(`❌ Email failed to send for ${externalOrderCode}`);
+}
+}
+
+return {
+statusCode: 200,
+body: JSON.stringify({ message: "eSIM order completed and email attempted", orderId: externalOrderCode }),
+};
+} catch (err) {
+console.error("❌ Unexpected error:", err);
+return { statusCode: 500, body: "Unexpected error occurred" };
+}
 };
