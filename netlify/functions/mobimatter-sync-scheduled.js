@@ -1,4 +1,4 @@
-import fetch from 'node-fetch'; // Make sure node-fetch is installed
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
@@ -47,7 +47,7 @@ const buildDescription = (product, details) => {
   `;
 };
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   console.log("✅ Function started");
 
   if (event.httpMethod !== "POST" && event.headers["x-scheduled-function"] !== "true") {
