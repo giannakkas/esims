@@ -1,7 +1,7 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const getCountryDisplay = (code) => {
-  if (!code || code.length !== 2) return `🌐 ${code}`;
+  if (!code?.length !== 2) return `🌐 ${code}`;
   const flag = code
     .toUpperCase()
     .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
@@ -12,7 +12,7 @@ const getCountryDisplay = (code) => {
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
-    details[name.trim()] = value;
+    details[name?.trim()] = value;
   });
   return details;
 };
@@ -30,23 +30,34 @@ exports.handler = async (event) => {
     SHOPIFY_API_VERSION = "2025-04",
   } = process.env;
 
-  const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  console.log("🔐 ENV CHECK:", {
+    MOBIMATTER_API_KEY: !!MOBIMATTER_API_KEY,
+    MOBIMATTER_MERCHANT_ID: !!MOBIMATTER_MERCHANT_ID,
+    SHOPIFY_ADMIN_API_KEY: !!SHOPIFY_ADMIN_API_KEY,
+    SHOPIFY_STORE_DOMAIN,
+  });
+
   const created = [], updated = [], removed = [], failed = [];
 
   try {
-    // Fetch from Mobimatter
-    const response = await fetch(MOBIMATTER_API_URL, {
+    console.log("📡 Fetching Mobimatter products...");
+    const mmRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/products", {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
         merchantId: MOBIMATTER_MERCHANT_ID,
       },
     });
 
-    const data = await response.json();
+    console.log("📡 Mobimatter status:", mmRes.status);
+    const raw = await mmRes.text();
+    console.log("📦 Mobimatter raw response:", raw.slice(0, 500));
+
+    const data = JSON.parse(raw);
     const products = (data?.result || []).slice(0, 5);
     const mobimatterHandles = new Set(products.map(p => `mobimatter-${p.uniqueId}`.toLowerCase()));
 
-    // Fetch Shopify products created by this integration
+    console.log(`🔄 Processing ${products.length} products from Mobimatter...`);
+
     const shopifyQuery = `
       {
         products(first: 250, query: "handle:mobimatter-") {
@@ -66,31 +77,31 @@ exports.handler = async (event) => {
       body: JSON.stringify({ query: shopifyQuery }),
     });
 
-    const shopifyData = await shopifyRes.json();
-    const existingProducts = shopifyData?.data?.products?.edges || [];
+    const shopifyJson = await shopifyRes.json();
+    console.log("🛒 Existing Shopify products:", shopifyJson?.data?.products?.edges?.length);
+    const existingProducts = shopifyJson?.data?.products?.edges || [];
 
-    // Delete products that are no longer in Mobimatter
     for (const { node } of existingProducts) {
       if (!mobimatterHandles.has(node.handle)) {
-        await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${node.id.split("/").pop()}.json`, {
+        const productId = node.id.split("/").pop();
+        console.log(`🗑️ Deleting ${node.title} (${productId})`);
+        const delRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${productId}.json`, {
           method: "DELETE",
-          headers: {
-            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
-          },
+          headers: { "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY },
         });
+        console.log(`🗑️ Delete response status: ${delRes.status}`);
         removed.push(node.handle);
-        console.log(`🗑️ Removed: ${node.handle}`);
       }
     }
 
-    // Create or update products
     for (const product of products) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
+      const existing = existingProducts.find(p => p.node.handle === handle);
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const countryTags = (product.countries || []).map(code =>
         new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase())
-      );
+      ).filter(Boolean);
 
       const descriptionHtml = `
         <h3>${title}</h3>
@@ -100,7 +111,6 @@ exports.handler = async (event) => {
         <p><strong>Network:</strong> ${details.FIVEG === "1" ? "5G" : "4G"}</p>
       `;
 
-      const existing = existingProducts.find(p => p.node.handle === handle);
       const input = {
         title,
         handle,
@@ -108,7 +118,7 @@ exports.handler = async (event) => {
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
         tags: countryTags,
-        published: true
+        published: true,
       };
 
       const mutation = existing
@@ -129,7 +139,7 @@ exports.handler = async (event) => {
           }
         `;
 
-      const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      const mutationRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -137,22 +147,24 @@ exports.handler = async (event) => {
         },
         body: JSON.stringify({
           query: mutation,
-          variables: { input: existing ? { ...input, id: existing.node.id } : input }
+          variables: { input: existing ? { ...input, id: existing.node.id } : input },
         }),
       });
 
-      const json = await res.json();
-      const success = json?.data?.[existing ? "productUpdate" : "productCreate"]?.product?.id;
+      const mutationJson = await mutationRes.json();
+      const success = mutationJson?.data?.[existing ? "productUpdate" : "productCreate"]?.product?.id;
+
       if (success) {
         if (existing) {
-          updated.push(title);
           console.log(`🔁 Updated: ${title}`);
+          updated.push(title);
         } else {
-          created.push(title);
           console.log(`✅ Created: ${title}`);
+          created.push(title);
         }
       } else {
-        console.error(`❌ Failed to ${existing ? "update" : "create"}: ${title}`, json);
+        console.error(`❌ Failed to ${existing ? "update" : "create"}: ${title}`);
+        console.error(JSON.stringify(mutationJson, null, 2));
         failed.push(title);
       }
     }
@@ -162,7 +174,10 @@ exports.handler = async (event) => {
       body: JSON.stringify({ created, updated, removed, failed }),
     };
   } catch (err) {
-    console.error("❌ Error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    console.error("❌ Unhandled Error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
