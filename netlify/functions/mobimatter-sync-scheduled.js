@@ -1,4 +1,4 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+import fetch from 'node-fetch'; // Make sure node-fetch is installed
 
 const getCountryDisplay = (code) => {
   if (!code || code.length !== 2) return `🌐 ${code}`;
@@ -47,8 +47,9 @@ const buildDescription = (product, details) => {
   `;
 };
 
-exports.handler = async (event) => {
-  // Allow both scheduled and manual POST trigger
+export const handler = async (event) => {
+  console.log("✅ Function started");
+
   if (event.httpMethod !== "POST" && event.headers["x-scheduled-function"] !== "true") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
@@ -60,6 +61,13 @@ exports.handler = async (event) => {
     SHOPIFY_STORE_DOMAIN,
     SHOPIFY_API_VERSION = "2025-04",
   } = process.env;
+
+  console.log("🔍 ENV CHECK", {
+    hasMobimatterKey: !!MOBIMATTER_API_KEY,
+    hasMerchant: !!MOBIMATTER_MERCHANT_ID,
+    hasShopifyKey: !!SHOPIFY_ADMIN_API_KEY,
+    domain: SHOPIFY_STORE_DOMAIN,
+  });
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
   const created = [], skipped = [], failed = [], removed = [];
