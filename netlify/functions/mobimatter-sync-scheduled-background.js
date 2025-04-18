@@ -46,8 +46,9 @@ const buildDescription = (details) => {
       </div>`;
   }
 
-  return `${planDetailsHtml}${additionalHtml}`
-    .replace(/(<br\s*\/?>|\s|<p><\/p>)+$/gi, "") // remove trailing whitespace and empty tags
+  return (`${planDetailsHtml}${additionalHtml}`)
+    .replace(/(<(br|p|div)[^>]*>\s*<\/(br|p|div)>|\s|<br\s*\/?>)+$/gi, '')
+    .replace(/\s+$/, '')
     .trim();
 };
 
@@ -165,7 +166,6 @@ exports.handler = async () => {
 
       const numericId = productId.split("/").pop();
 
-      // Upload image
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -178,7 +178,6 @@ exports.handler = async () => {
         console.log(`🖼️ Image uploaded for: ${title}`);
       }
 
-      // Price + stock
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
         headers: {
           "Content-Type": "application/json",
