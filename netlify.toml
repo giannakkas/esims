@@ -18,5 +18,6 @@
 
 # Scheduled function: mobimatter-sync-scheduled
 [[scheduled]]
-  path = "/.netlify/functions/mobimatter-sync-scheduled"
-  schedule = "0 3 * * *"
+path = "/.netlify/functions/mobimatter-sync-scheduled-background"
+schedule = "0 3 * * *"
+
