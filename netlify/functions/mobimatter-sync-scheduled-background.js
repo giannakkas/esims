@@ -1,14 +1,5 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-const getCountryDisplay = (code) => {
-  if (!code.length !== 2) return `🌐 ${code}`;
-  const flag = code
-    .toUpperCase()
-    .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
-  const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
-  return `${flag} ${name || code}`;
-};
-
 const getProductDetails = (product) => {
   const details = {};
   (product.productDetails || []).forEach(({ name, value }) => {
@@ -17,21 +8,14 @@ const getProductDetails = (product) => {
   return details;
 };
 
-const buildDescription = (product, details) => {
-  const countries = (product.countries || [])
-    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
-    .join("");
-
-  const rawValidity = details.PLAN_VALIDITY || "";
-  const validityInDays = /^\d+$/.test(rawValidity)
-    ? `${parseInt(rawValidity) / 24} days`
-    : rawValidity;
-
+const buildDescription = (details) => {
   let planDetailsHtml = "";
+  let additionalHtml = "";
+
   if (details["PLAN_DETAILS"]) {
     try {
       const parsed = JSON.parse(details["PLAN_DETAILS"]);
-      const heading = parsed.heading ? `<h4>${parsed.heading}</h4>` : "";
+      const heading = parsed.heading ? `<h3>${parsed.heading}</h3>` : "";
       const description = parsed.description ? `<p>${parsed.description}</p>` : "";
       const items = parsed.items?.length
         ? `<ul>${parsed.items.map(item => `<li>${item}</li>`).join("")}</ul>`
@@ -42,25 +26,18 @@ const buildDescription = (product, details) => {
     }
   }
 
-  return `
-    <div class="esim-description">
-      <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
-      <div class="countries-section">
-        <p><strong>Countries:</strong></p>
-        <ul>${countries}</ul>
-      </div>
-      <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
-      <p><strong>Validity:</strong> ${validityInDays}</p>
-      <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
-      ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
-      ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
-      <p><strong>Calls:</strong> ${details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available"}</p>
-      <p><strong>SMS:</strong> ${details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available"}</p>
-      <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
-      <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
-    </div>
-    ${planDetailsHtml}
-  `;
+  if (details["ADDITIONAL_DETAILS"]) {
+    additionalHtml = `
+      <div class="additional-details">
+        <h4>Additional Info</h4>
+        <p>${details["ADDITIONAL_DETAILS"]
+          .replace(/\n/g, "<br>")
+          .replace(/\s+/g, " ")
+          .trim()}</p>
+      </div>`;
+  }
+
+  return `${planDetailsHtml}${additionalHtml}`;
 };
 
 exports.handler = async () => {
@@ -91,6 +68,8 @@ exports.handler = async () => {
 
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
+      const details = getProductDetails(product);
+      const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
 
       const checkQuery = `{
         products(first: 1, query: "handle:${handle}") {
@@ -110,35 +89,24 @@ exports.handler = async () => {
       const checkJson = await checkRes.json();
       const exists = checkJson?.data?.products?.edges?.length > 0;
       if (exists) {
-        const details = getProductDetails(product);
-        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
         console.log(`⏭️ Skipped: ${title}`);
         skipped.push(title);
         continue;
       }
 
-      const details = getProductDetails(product);
-      const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-      const countriesText = (product.countries || []).map(getCountryDisplay).join(", ");
-
       const metafields = [
-        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
-        { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
-        { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
-        { namespace: "esim", key: "validity", type: "single_line_text_field", value: details.PLAN_VALIDITY || "N/A" },
-        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}` },
-        { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
-        { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
-        { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
+        { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" }
       ];
 
       const input = {
         title,
         handle,
-        descriptionHtml: buildDescription(product, details),
+        descriptionHtml: buildDescription(details),
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
-        tags: (product.countries || []).map(code => new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase())),
+        tags: (product.countries || []).map(code =>
+          new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase())
+        ),
         published: true,
         metafields,
       };
@@ -172,7 +140,7 @@ exports.handler = async () => {
 
       const numericId = productId.split("/").pop();
 
-      // Upload provider image
+      // Upload image
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -185,7 +153,7 @@ exports.handler = async () => {
         console.log(`🖼️ Image uploaded for: ${title}`);
       }
 
-      // Update price and stock
+      // Price + stock
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
         headers: {
           "Content-Type": "application/json",
@@ -210,7 +178,7 @@ exports.handler = async () => {
               price: (product.retailPrice || 0).toFixed(2),
               sku: product.uniqueId,
               inventory_management: "shopify",
-              inventory_policy: "continue",
+              inventory_policy: "continue"
             },
           }),
         });
@@ -246,7 +214,7 @@ exports.handler = async () => {
       console.log(`✅ Created: ${title}`);
     }
 
-    console.log("✅ Sync finished");
+    console.log("✅ Sync complete.");
     console.log(`➕ Created: ${created.length}`);
     console.log(`⏭️ Skipped: ${skipped.length}`);
     console.log(`❌ Failed: ${failed.length}`);
