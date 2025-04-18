@@ -126,7 +126,7 @@ exports.handler = async () => {
       const input = {
         title,
         handle,
-        descriptionHtml: buildDescription(details),
+        descriptionHtml: buildDescription(details).trim(), // 🧼 Clean trailing space
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
         tags: countryNamesWithFlags,
