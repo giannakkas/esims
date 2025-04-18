@@ -74,7 +74,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
 
-    for (const product of products.slice(0, 5)) { // ← Only sync 5 products
+    for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       const checkQuery = `{
@@ -156,6 +156,76 @@ exports.handler = async () => {
       const json = await res.json();
       const shopifyId = json?.data?.productCreate?.product?.id;
       if (shopifyId) {
+        const numericId = shopifyId.split("/").pop();
+
+        if (product.providerLogo?.startsWith("http")) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({ image: { src: product.providerLogo } }),
+          });
+          console.log(`🖼️ Image uploaded for: ${title}`);
+        }
+
+        const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        });
+
+        const { variants } = await variantRes.json();
+        const variantId = variants?.[0]?.id;
+        const inventoryItemId = variants?.[0]?.inventory_item_id;
+
+        if (variantId && inventoryItemId) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({
+              variant: {
+                id: variantId,
+                price: (product.retailPrice || 0).toFixed(2),
+                sku: product.uniqueId,
+                inventory_management: "shopify",
+                inventory_policy: "continue"
+              },
+            }),
+          });
+
+          const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+          });
+
+          const locations = (await locationsRes.json()).locations;
+          const locationId = locations?.[0]?.id;
+
+          if (locationId) {
+            await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+              body: JSON.stringify({
+                location_id: locationId,
+                inventory_item_id: inventoryItemId,
+                available: 999999
+              }),
+            });
+            console.log(`📦 Inventory set at location ${locationId} for: ${title}`);
+          }
+        }
+
         created.push(title);
         console.log(`✅ Created: ${title}`);
       } else {
