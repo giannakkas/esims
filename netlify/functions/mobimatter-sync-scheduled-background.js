@@ -143,12 +143,12 @@ exports.handler = async () => {
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
 
-      // Add PLAN_DETAILS and ADDITIONAL_DETAILS as metafields
+      // ✅ Correct metafield types:
       if (details["PLAN_DETAILS"]) {
         metafields.push({
           namespace: "esim",
           key: "plan_details",
-          type: "multi_line_text_field",
+          type: "json",
           value: details["PLAN_DETAILS"]
         });
       }
@@ -157,7 +157,7 @@ exports.handler = async () => {
         metafields.push({
           namespace: "esim",
           key: "additional_details",
-          type: "multi_line_text_field",
+          type: "single_line_text_field",
           value: details["ADDITIONAL_DETAILS"]
         });
       }
