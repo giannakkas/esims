@@ -12,3 +12,6 @@ functions = "netlify/functions"
 [[scheduled]]
   path = "/.netlify/functions/recover-esims"
   schedule = "*/10 * * * *"
+
+[functions."mobimatter-sync-scheduled"]
+  schedule = "0 3 * * *" # every day at 03:00 UTC
