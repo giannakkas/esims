@@ -135,8 +135,33 @@ exports.handler = async () => {
         metafields,
       };
 
-      // Submit to Shopify (GraphQL mutation logic would follow here...)
-      // This part is omitted for brevity
+      const mutation = `
+        mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `;
+
+      const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+        },
+        body: JSON.stringify({ query: mutation, variables: { input } }),
+      });
+
+      const json = await res.json();
+      const shopifyId = json?.data?.productCreate?.product?.id;
+      if (shopifyId) {
+        created.push(title);
+        console.log(`✅ Created: ${title}`);
+      } else {
+        console.error(`❌ Failed to create: ${title}`, json?.data?.productCreate?.userErrors);
+        failed.push(title);
+      }
     }
 
     return {
