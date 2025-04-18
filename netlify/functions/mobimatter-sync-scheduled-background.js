@@ -57,7 +57,7 @@ exports.handler = async () => {
   } = process.env;
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [], skipped = [], failed = [];
+  const created = [], skipped = [], failed = [], imageUploaded = [], priceUpdated = [];
 
   try {
     console.log("📡 Fetching from Mobimatter API...");
@@ -76,7 +76,6 @@ exports.handler = async () => {
 
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
-
       const checkQuery = `{
         products(first: 1, query: "handle:${handle}") {
           edges { node { id title } }
@@ -120,28 +119,27 @@ exports.handler = async () => {
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
 
-      // ✅ Flatten PLAN_DETAILS JSON to plain string
+      // ✅ Plan details → esims namespace as multi_line_text_field
       if (details["PLAN_DETAILS"]) {
         try {
           const parsed = JSON.parse(details["PLAN_DETAILS"]);
-          const flatText = [
+          const fullText = [
             parsed.heading,
             parsed.description,
             ...(parsed.items || [])
-          ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 255);
+          ].filter(Boolean).join("\n");
 
           metafields.push({
-            namespace: "esim",
+            namespace: "esims", // ← updated here
             key: "plan_details",
-            type: "single_line_text_field",
-            value: flatText
+            type: "multi_line_text_field",
+            value: fullText
           });
         } catch (err) {
           console.error("❌ PLAN_DETAILS parse error:", err.message);
         }
       }
 
-      // ✅ Flatten ADDITIONAL_DETAILS to plain string
       if (details["ADDITIONAL_DETAILS"]) {
         const flatAdditional = details["ADDITIONAL_DETAILS"]
           .replace(/\n/g, " ")
@@ -191,19 +189,81 @@ exports.handler = async () => {
       });
 
       const json = await res.json();
-      const shopifyId = json?.data?.productCreate?.product?.id;
-      if (shopifyId) {
-        created.push(title);
-        console.log(`✅ Created: ${title}`);
-      } else {
+      const productId = json?.data?.productCreate?.product?.id;
+
+      if (!productId) {
         console.error(`❌ Failed to create: ${title}`, json?.data?.productCreate?.userErrors);
         failed.push(title);
+        continue;
       }
+
+      const numericId = productId.split("/").pop();
+
+      if (product.providerLogo?.startsWith("http")) {
+        await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({ image: { src: product.providerLogo } }),
+        });
+        console.log(`🖼️ Image uploaded for: ${title}`);
+        imageUploaded.push(title);
+      }
+
+      const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+        },
+      });
+
+      const { variants } = await variantRes.json();
+      const variantId = variants?.[0]?.id;
+      const inventoryItemId = variants?.[0]?.inventory_item_id;
+
+      if (variantId && inventoryItemId) {
+        await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({
+            variant: {
+              id: variantId,
+              price: (product.retailPrice || 0).toFixed(2),
+              sku: product.uniqueId,
+              inventory_management: "shopify",
+              inventory_policy: "continue"
+            },
+          }),
+        });
+        priceUpdated.push(title);
+        console.log(`💸 Price set for: ${title}`);
+      }
+
+      created.push(title);
+      console.log(`✅ Created: ${title}`);
     }
+
+    console.log("🟢 Sync complete:");
+    console.log(`✅ Created: ${created.length}`);
+    console.log(`⏭️ Skipped: ${skipped.length}`);
+    console.log(`❌ Failed: ${failed.length}`);
+    console.log(`🖼️ Images Uploaded: ${imageUploaded.length}`);
+    console.log(`💸 Prices Set: ${priceUpdated.length}`);
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ created, skipped, failed }),
+      body: JSON.stringify({
+        created,
+        skipped,
+        failed,
+        imageUploaded,
+        priceUpdated
+      }),
     };
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
