@@ -119,21 +119,26 @@ exports.handler = async () => {
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
 
-      // ✅ Plan details → esims namespace as multi_line_text_field
+      // ✅ Plan details as SINGLE LINE text
       if (details["PLAN_DETAILS"]) {
         try {
           const parsed = JSON.parse(details["PLAN_DETAILS"]);
-          const fullText = [
+          const flatText = [
             parsed.heading,
             parsed.description,
             ...(parsed.items || [])
-          ].filter(Boolean).join("\n");
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 255); // single-line limit
 
           metafields.push({
-            namespace: "esims", // ← updated here
+            namespace: "esims",
             key: "plan_details",
-            type: "multi_line_text_field",
-            value: fullText
+            type: "single_line_text_field",
+            value: flatText
           });
         } catch (err) {
           console.error("❌ PLAN_DETAILS parse error:", err.message);
