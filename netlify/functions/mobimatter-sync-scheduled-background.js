@@ -52,48 +52,202 @@ const buildDescription = (product, details) => {
   `;
 };
 
-exports.handler = async (event) => {
-  console.log("✅ Function started");
-
-  if (event.httpMethod !== "POST" && event.headers["x-scheduled-function"] !== "true") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
-  let MOBIMATTER_API_KEY,
+exports.handler = async () => {
+  const {
+    MOBIMATTER_API_KEY,
     MOBIMATTER_MERCHANT_ID,
     SHOPIFY_ADMIN_API_KEY,
     SHOPIFY_STORE_DOMAIN,
-    SHOPIFY_API_VERSION;
+    SHOPIFY_API_VERSION = "2025-04",
+  } = process.env;
+
+  const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
+  const created = [], skipped = [], failed = [];
 
   try {
-    console.log("🧪 Checking environment variables...");
+    console.log("📡 Fetching from Mobimatter API...");
+    const response = await fetch(MOBIMATTER_API_URL, {
+      headers: {
+        "api-key": MOBIMATTER_API_KEY,
+        merchantId: MOBIMATTER_MERCHANT_ID,
+      },
+    });
 
-    MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
-    console.log("✅ MOBIMATTER_API_KEY loaded");
+    if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
+    const data = await response.json();
+    const products = data?.result;
 
-    MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
-    console.log("✅ MOBIMATTER_MERCHANT_ID loaded");
+    if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
 
-    SHOPIFY_ADMIN_API_KEY = process.env.SHOPIFY_ADMIN_API_KEY;
-    console.log("✅ SHOPIFY_ADMIN_API_KEY loaded");
+    for (const product of products.slice(0, 5)) {
+      const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
-    SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-    console.log("✅ SHOPIFY_STORE_DOMAIN loaded");
+      const checkQuery = `{
+        products(first: 1, query: "handle:${handle}") {
+          edges { node { id title } }
+        }
+      }`;
 
-    SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-04";
-    console.log("✅ SHOPIFY_API_VERSION loaded");
+      const checkRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+        },
+        body: JSON.stringify({ query: checkQuery }),
+      });
 
-    console.log("🔍 ENV CHECK COMPLETE");
+      const checkJson = await checkRes.json();
+      const exists = checkJson?.data?.products?.edges?.length > 0;
+      if (exists) {
+        const details = getProductDetails(product);
+        const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+        console.log(`⏭️ Skipped: ${title}`);
+        skipped.push(title);
+        continue;
+      }
+
+      const details = getProductDetails(product);
+      const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+      const rawValidity = details.PLAN_VALIDITY || "";
+      const validityInDays = /^\d+$/.test(rawValidity) ? `${parseInt(rawValidity) / 24} days` : rawValidity;
+      const countryNames = (product.countries || []).map(getCountryDisplay);
+      const countriesText = countryNames.join(", ");
+
+      const metafields = [
+        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+        { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
+        { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
+        { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
+        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+        { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
+        { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
+        { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
+      ];
+
+      const countryTags = (product.countries || [])
+        .map((c) => new Intl.DisplayNames(['en'], { type: 'region' }).of(c.toUpperCase()))
+        .filter(Boolean);
+
+      const input = {
+        title,
+        handle,
+        descriptionHtml: buildDescription(product, details),
+        vendor: product.providerName || "Mobimatter",
+        productType: "eSIM",
+        tags: countryTags,
+        published: true,
+        metafields,
+      };
+
+      const mutation = `
+        mutation productCreate($input: ProductInput!) {
+          productCreate(input: $input) {
+            product { id title }
+            userErrors { field message }
+          }
+        }
+      `;
+
+      const res = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+        },
+        body: JSON.stringify({ query: mutation, variables: { input } }),
+      });
+
+      const json = await res.json();
+      const shopifyId = json?.data?.productCreate?.product?.id;
+      if (shopifyId) {
+        const numericId = shopifyId.split("/").pop();
+
+        if (product.providerLogo?.startsWith("http")) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({ image: { src: product.providerLogo } }),
+          });
+          console.log(`🖼️ Image uploaded for: ${title}`);
+        }
+
+        const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        });
+
+        const { variants } = await variantRes.json();
+        const variantId = variants?.[0]?.id;
+        const inventoryItemId = variants?.[0]?.inventory_item_id;
+
+        if (variantId && inventoryItemId) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/variants/${variantId}.json`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({
+              variant: {
+                id: variantId,
+                price: (product.retailPrice || 0).toFixed(2),
+                sku: product.uniqueId,
+                inventory_management: "shopify",
+                inventory_policy: "continue"
+              },
+            }),
+          });
+
+          const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+          });
+
+          const locations = (await locationsRes.json()).locations;
+          const locationId = locations?.[0]?.id;
+
+          if (locationId) {
+            await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+              },
+              body: JSON.stringify({
+                location_id: locationId,
+                inventory_item_id: inventoryItemId,
+                available: 999999
+              }),
+            });
+            console.log(`📦 Inventory set at location ${locationId} for: ${title}`);
+          }
+        }
+
+        created.push(title);
+        console.log(`✅ Created: ${title}`);
+      } else {
+        console.error(`❌ Failed to create: ${title}`, json?.data?.productCreate?.userErrors);
+        failed.push(title);
+      }
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ created, skipped, failed }),
+    };
   } catch (err) {
-    console.error("❌ ENV ERROR", err);
+    console.error("❌ Fatal error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Failed to read environment variables", detail: err.message }),
+      body: JSON.stringify({ error: err.message }),
     };
   }
-
-  return {
-    statusCode: 200,
-    body: JSON.stringify({ message: "Environment loaded. Ready to proceed." }),
-  };
 };
