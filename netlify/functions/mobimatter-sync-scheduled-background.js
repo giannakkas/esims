@@ -27,7 +27,6 @@ const buildDescription = (product, details) => {
     ? `${parseInt(rawValidity) / 24} days`
     : rawValidity;
 
-  // 🔽 Parse PLAN_DETAILS JSON string
   let planDetailsHtml = "";
   try {
     if (details["PLAN_DETAILS"]) {
@@ -45,10 +44,8 @@ const buildDescription = (product, details) => {
     console.error("❌ Failed to parse PLAN_DETAILS:", err.message);
   }
 
-  // 🔽 Format ADDITIONAL_DETAILS with line breaks
   const additionalDetails = details["ADDITIONAL_DETAILS"]
-    ? `<div class="additional-details"><h4>Additional Details</h4><p>${details["ADDITIONAL_DETAILS"]
-        .replace(/\n/g, "<br>")}</p></div>`
+    ? `<div class="additional-details"><h4>Additional Details</h4><p>${details["ADDITIONAL_DETAILS"].replace(/\n/g, "<br>")}</p></div>`
     : "";
 
   return `
@@ -145,6 +142,25 @@ exports.handler = async () => {
         { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
+
+      // Add PLAN_DETAILS and ADDITIONAL_DETAILS as metafields
+      if (details["PLAN_DETAILS"]) {
+        metafields.push({
+          namespace: "esim",
+          key: "plan_details",
+          type: "multi_line_text_field",
+          value: details["PLAN_DETAILS"]
+        });
+      }
+
+      if (details["ADDITIONAL_DETAILS"]) {
+        metafields.push({
+          namespace: "esim",
+          key: "additional_details",
+          type: "multi_line_text_field",
+          value: details["ADDITIONAL_DETAILS"]
+        });
+      }
 
       const countryTags = (product.countries || [])
         .map((c) => new Intl.DisplayNames(['en'], { type: 'region' }).of(c.toUpperCase()))
