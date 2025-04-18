@@ -95,6 +95,13 @@ exports.handler = async () => {
       }
 
       const metafields = [
+        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+        { namespace: "esim", key: "countries", type: "single_line_text_field", value: (product.countries || []).join(", ") },
+        { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
+        { namespace: "esim", key: "validity", type: "single_line_text_field", value: details.PLAN_VALIDITY || "N/A" },
+        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+        { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
+        { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" }
       ];
 
