@@ -8,6 +8,15 @@ const getProductDetails = (product) => {
   return details;
 };
 
+const getCountryWithFlag = (code) => {
+  if (!code || code.length !== 2) return code;
+  const flag = code
+    .toUpperCase()
+    .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
+  const name = new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase());
+  return `${flag} ${name}`;
+};
+
 const buildDescription = (details) => {
   let planDetailsHtml = "";
   let additionalHtml = "";
@@ -94,9 +103,9 @@ exports.handler = async () => {
         continue;
       }
 
-      const countryNames = (product.countries || []).map(code =>
-        new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase())
-      ).filter(Boolean);
+      const countryNamesWithFlags = (product.countries || [])
+        .map(getCountryWithFlag)
+        .filter(Boolean);
 
       const rawValidity = details.PLAN_VALIDITY || "";
       const validityInDays = /^\d+$/.test(rawValidity)
@@ -105,7 +114,7 @@ exports.handler = async () => {
 
       const metafields = [
         { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
-        { namespace: "esim", key: "countries", type: "single_line_text_field", value: countryNames.join(", ") },
+        { namespace: "esim", key: "countries", type: "single_line_text_field", value: countryNamesWithFlags.join(", ") },
         { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
         { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
         { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
@@ -120,7 +129,7 @@ exports.handler = async () => {
         descriptionHtml: buildDescription(details),
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
-        tags: countryNames,
+        tags: countryNamesWithFlags,
         published: true,
         metafields,
       };
