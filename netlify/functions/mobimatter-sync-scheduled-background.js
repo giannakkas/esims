@@ -27,27 +27,6 @@ const buildDescription = (product, details) => {
     ? `${parseInt(rawValidity) / 24} days`
     : rawValidity;
 
-  let planDetailsHtml = "";
-  try {
-    if (details["PLAN_DETAILS"]) {
-      const planDetails = JSON.parse(details["PLAN_DETAILS"]);
-      const items = planDetails.items?.map((item) => `<li>${item}</li>`).join("") || "";
-      planDetailsHtml = `
-        <div class="plan-details">
-          <h4>${planDetails.heading || "Plan Details"}</h4>
-          <p>${planDetails.description || ""}</p>
-          <ul>${items}</ul>
-        </div>
-      `;
-    }
-  } catch (err) {
-    console.error("❌ Failed to parse PLAN_DETAILS:", err.message);
-  }
-
-  const additionalDetails = details["ADDITIONAL_DETAILS"]
-    ? `<div class="additional-details"><h4>Additional Details</h4><p>${details["ADDITIONAL_DETAILS"].replace(/\n/g, "<br>")}</p></div>`
-    : "";
-
   return `
     <div class="esim-description">
       <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
@@ -65,8 +44,6 @@ const buildDescription = (product, details) => {
       <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
-    ${planDetailsHtml}
-    ${additionalDetails}
   `;
 };
 
@@ -143,26 +120,40 @@ exports.handler = async () => {
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
 
+      // ✅ Flatten PLAN_DETAILS JSON to plain string
       if (details["PLAN_DETAILS"]) {
-        metafields.push({
-          namespace: "esim",
-          key: "plan_details",
-          type: "json",
-          value: details["PLAN_DETAILS"]
-        });
+        try {
+          const parsed = JSON.parse(details["PLAN_DETAILS"]);
+          const flatText = [
+            parsed.heading,
+            parsed.description,
+            ...(parsed.items || [])
+          ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 255);
+
+          metafields.push({
+            namespace: "esim",
+            key: "plan_details",
+            type: "single_line_text_field",
+            value: flatText
+          });
+        } catch (err) {
+          console.error("❌ PLAN_DETAILS parse error:", err.message);
+        }
       }
 
+      // ✅ Flatten ADDITIONAL_DETAILS to plain string
       if (details["ADDITIONAL_DETAILS"]) {
-        const singleLine = details["ADDITIONAL_DETAILS"]
+        const flatAdditional = details["ADDITIONAL_DETAILS"]
           .replace(/\n/g, " ")
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 255);
+
         metafields.push({
           namespace: "esim",
           key: "additional_details",
           type: "single_line_text_field",
-          value: singleLine
+          value: flatAdditional
         });
       }
 
