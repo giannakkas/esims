@@ -17,18 +17,59 @@ const getProductDetails = (product) => {
   return details;
 };
 
-// TEMP: DEBUG VERSION — log all possible description fields
 const buildDescription = (product, details) => {
-  console.log("🧪 RAW PRODUCT:", JSON.stringify(product, null, 2));
+  const countries = (product.countries || [])
+    .map((c) => `<li>${getCountryDisplay(c)}</li>`)
+    .join("");
+
+  const rawValidity = details.PLAN_VALIDITY || "";
+  const validityInDays = /^\d+$/.test(rawValidity)
+    ? `${parseInt(rawValidity) / 24} days`
+    : rawValidity;
+
+  // 🔽 Parse PLAN_DETAILS JSON string
+  let planDetailsHtml = "";
+  try {
+    if (details["PLAN_DETAILS"]) {
+      const planDetails = JSON.parse(details["PLAN_DETAILS"]);
+      const items = planDetails.items?.map((item) => `<li>${item}</li>`).join("") || "";
+      planDetailsHtml = `
+        <div class="plan-details">
+          <h4>${planDetails.heading || "Plan Details"}</h4>
+          <p>${planDetails.description || ""}</p>
+          <ul>${items}</ul>
+        </div>
+      `;
+    }
+  } catch (err) {
+    console.error("❌ Failed to parse PLAN_DETAILS:", err.message);
+  }
+
+  // 🔽 Format ADDITIONAL_DETAILS with line breaks
+  const additionalDetails = details["ADDITIONAL_DETAILS"]
+    ? `<div class="additional-details"><h4>Additional Details</h4><p>${details["ADDITIONAL_DETAILS"]
+        .replace(/\n/g, "<br>")}</p></div>`
+    : "";
 
   return `
     <div class="esim-description">
-      <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"} (Debug)</h3>
-      <p><strong>description:</strong><br>${product.description || "N/A"}</p>
-      <p><strong>longDescription:</strong><br>${product.longDescription || "N/A"}</p>
-      <p><strong>Other JSON (truncated):</strong></p>
-      <pre>${JSON.stringify(product, null, 2).substring(0, 3000)}...</pre>
+      <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
+      <div class="countries-section">
+        <p><strong>Countries:</strong></p>
+        <ul>${countries}</ul>
+      </div>
+      <p><strong>Data:</strong> ${details.PLAN_DATA_LIMIT || "?"} ${details.PLAN_DATA_UNIT || "GB"}</p>
+      <p><strong>Validity:</strong> ${validityInDays}</p>
+      <p><strong>Network:</strong> ${details.FIVEG === "1" ? "📶 5G Supported" : "📱 4G Supported"}</p>
+      ${details.SPEED ? `<p><strong>Speed:</strong> ${details.SPEED}</p>` : ""}
+      ${details.TOPUP === "1" ? "<p><strong>Top-up:</strong> Available</p>" : ""}
+      <p><strong>Calls:</strong> ${details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available"}</p>
+      <p><strong>SMS:</strong> ${details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available"}</p>
+      <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
+      <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
+    ${planDetailsHtml}
+    ${additionalDetails}
   `;
 };
 
@@ -59,7 +100,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
 
-    for (const product of products.slice(0, 1)) {
+    for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
 
       const checkQuery = `{
@@ -89,6 +130,25 @@ exports.handler = async () => {
 
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+      const rawValidity = details.PLAN_VALIDITY || "";
+      const validityInDays = /^\d+$/.test(rawValidity) ? `${parseInt(rawValidity) / 24} days` : rawValidity;
+      const countryNames = (product.countries || []).map(getCountryDisplay);
+      const countriesText = countryNames.join(", ");
+
+      const metafields = [
+        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+        { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
+        { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
+        { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
+        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+        { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
+        { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
+        { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
+      ];
+
+      const countryTags = (product.countries || [])
+        .map((c) => new Intl.DisplayNames(['en'], { type: 'region' }).of(c.toUpperCase()))
+        .filter(Boolean);
 
       const input = {
         title,
@@ -96,9 +156,9 @@ exports.handler = async () => {
         descriptionHtml: buildDescription(product, details),
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
-        tags: [],
+        tags: countryTags,
         published: true,
-        metafields: [],
+        metafields,
       };
 
       const mutation = `
@@ -123,7 +183,7 @@ exports.handler = async () => {
       const shopifyId = json?.data?.productCreate?.product?.id;
       if (shopifyId) {
         created.push(title);
-        console.log(`✅ Created (Debug Mode): ${title}`);
+        console.log(`✅ Created: ${title}`);
       } else {
         console.error(`❌ Failed to create: ${title}`, json?.data?.productCreate?.userErrors);
         failed.push(title);
