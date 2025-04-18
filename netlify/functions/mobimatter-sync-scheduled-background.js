@@ -66,18 +66,24 @@ exports.handler = async (event) => {
     SHOPIFY_API_VERSION;
 
   try {
-    MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
-    MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
-    SHOPIFY_ADMIN_API_KEY = process.env.SHOPIFY_ADMIN_API_KEY;
-    SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-    SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-04";
+    console.log("🧪 Checking environment variables...");
 
-    console.log("🔍 ENV CHECK", {
-      hasMobimatterKey: !!MOBIMATTER_API_KEY,
-      hasMerchant: !!MOBIMATTER_MERCHANT_ID,
-      hasShopifyKey: !!SHOPIFY_ADMIN_API_KEY,
-      domain: SHOPIFY_STORE_DOMAIN,
-    });
+    MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
+    console.log("✅ MOBIMATTER_API_KEY loaded");
+
+    MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
+    console.log("✅ MOBIMATTER_MERCHANT_ID loaded");
+
+    SHOPIFY_ADMIN_API_KEY = process.env.SHOPIFY_ADMIN_API_KEY;
+    console.log("✅ SHOPIFY_ADMIN_API_KEY loaded");
+
+    SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+    console.log("✅ SHOPIFY_STORE_DOMAIN loaded");
+
+    SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-04";
+    console.log("✅ SHOPIFY_API_VERSION loaded");
+
+    console.log("🔍 ENV CHECK COMPLETE");
   } catch (err) {
     console.error("❌ ENV ERROR", err);
     return {
@@ -86,12 +92,8 @@ exports.handler = async (event) => {
     };
   }
 
-  // you can now continue with your sync logic here...
-  console.log("🚀 Environment loaded, ready to fetch from Mobimatter");
-
-  // You can continue here with fetch and product sync logic...
   return {
     statusCode: 200,
-    body: JSON.stringify({ message: "Environment validated. Ready for sync." }),
+    body: JSON.stringify({ message: "Environment loaded. Ready to proceed." }),
   };
 };
