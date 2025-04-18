@@ -46,7 +46,9 @@ const buildDescription = (details) => {
       </div>`;
   }
 
-  return `${planDetailsHtml}${additionalHtml}`;
+  return `${planDetailsHtml}${additionalHtml}`
+    .replace(/(<br\s*\/?>|\s|<p><\/p>)+$/gi, "") // remove trailing whitespace and empty tags
+    .trim();
 };
 
 exports.handler = async () => {
@@ -126,7 +128,7 @@ exports.handler = async () => {
       const input = {
         title,
         handle,
-        descriptionHtml: buildDescription(details).trim(), // 🧼 Clean trailing space
+        descriptionHtml: buildDescription(details),
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
         tags: countryNamesWithFlags,
