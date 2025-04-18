@@ -1,7 +1,7 @@
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const getCountryDisplay = (code) => {
-  if (!code || code.length !== 2) return `🌐 ${code}`;
+  if (!code.length !== 2) return `🌐 ${code}`;
   const flag = code
     .toUpperCase()
     .replace(/./g, char => String.fromCodePoint(127397 + char.charCodeAt()));
@@ -27,6 +27,21 @@ const buildDescription = (product, details) => {
     ? `${parseInt(rawValidity) / 24} days`
     : rawValidity;
 
+  let planDetailsHtml = "";
+  if (details["PLAN_DETAILS"]) {
+    try {
+      const parsed = JSON.parse(details["PLAN_DETAILS"]);
+      const heading = parsed.heading ? `<h4>${parsed.heading}</h4>` : "";
+      const description = parsed.description ? `<p>${parsed.description}</p>` : "";
+      const items = parsed.items?.length
+        ? `<ul>${parsed.items.map(item => `<li>${item}</li>`).join("")}</ul>`
+        : "";
+      planDetailsHtml = `<div class="plan-details">${heading}${description}${items}</div>`;
+    } catch (err) {
+      console.error("⚠️ PLAN_DETAILS parse error", err.message);
+    }
+  }
+
   return `
     <div class="esim-description">
       <h3>${details.PLAN_TITLE || product.productFamilyName || "eSIM Plan"}</h3>
@@ -44,6 +59,7 @@ const buildDescription = (product, details) => {
       <p><strong>Price:</strong> $${product.retailPrice?.toFixed(2) || "N/A"}</p>
       <p><strong>Provider:</strong> ${product.providerName || "Mobimatter"}</p>
     </div>
+    ${planDetailsHtml}
   `;
 };
 
@@ -57,7 +73,7 @@ exports.handler = async () => {
   } = process.env;
 
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
-  const created = [], skipped = [], failed = [], imageUploaded = [], priceUpdated = [];
+  const created = [], skipped = [], failed = [];
 
   try {
     console.log("📡 Fetching from Mobimatter API...");
@@ -68,14 +84,14 @@ exports.handler = async () => {
       },
     });
 
-    if (!response.ok) throw new Error(`Mobimatter fetch failed: ${response.status}`);
     const data = await response.json();
     const products = data?.result;
 
-    if (!Array.isArray(products)) throw new Error("Invalid product array from Mobimatter");
+    if (!Array.isArray(products)) throw new Error("Invalid product array");
 
     for (const product of products.slice(0, 5)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
+
       const checkQuery = `{
         products(first: 1, query: "handle:${handle}") {
           edges { node { id title } }
@@ -103,66 +119,18 @@ exports.handler = async () => {
 
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
-      const rawValidity = details.PLAN_VALIDITY || "";
-      const validityInDays = /^\d+$/.test(rawValidity) ? `${parseInt(rawValidity) / 24} days` : rawValidity;
-      const countryNames = (product.countries || []).map(getCountryDisplay);
-      const countriesText = countryNames.join(", ");
+      const countriesText = (product.countries || []).map(getCountryDisplay).join(", ");
 
       const metafields = [
         { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
         { namespace: "esim", key: "countries", type: "single_line_text_field", value: countriesText },
         { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
-        { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
-        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}`.trim() },
+        { namespace: "esim", key: "validity", type: "single_line_text_field", value: details.PLAN_VALIDITY || "N/A" },
+        { namespace: "esim", key: "data_limit", type: "single_line_text_field", value: `${details.PLAN_DATA_LIMIT || ""} ${details.PLAN_DATA_UNIT || "GB"}` },
         { namespace: "esim", key: "calls", type: "single_line_text_field", value: details.HAS_CALLS === "1" ? (details.CALL_MINUTES ? `${details.CALL_MINUTES} minutes` : "Available") : "Not available" },
         { namespace: "esim", key: "sms", type: "single_line_text_field", value: details.HAS_SMS === "1" ? (details.SMS_COUNT ? `${details.SMS_COUNT} SMS` : "Available") : "Not available" },
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
-
-      // ✅ Plan details as SINGLE LINE text
-      if (details["PLAN_DETAILS"]) {
-        try {
-          const parsed = JSON.parse(details["PLAN_DETAILS"]);
-          const flatText = [
-            parsed.heading,
-            parsed.description,
-            ...(parsed.items || [])
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 255); // single-line limit
-
-          metafields.push({
-            namespace: "esims",
-            key: "plan_details",
-            type: "single_line_text_field",
-            value: flatText
-          });
-        } catch (err) {
-          console.error("❌ PLAN_DETAILS parse error:", err.message);
-        }
-      }
-
-      if (details["ADDITIONAL_DETAILS"]) {
-        const flatAdditional = details["ADDITIONAL_DETAILS"]
-          .replace(/\n/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 255);
-
-        metafields.push({
-          namespace: "esim",
-          key: "additional_details",
-          type: "single_line_text_field",
-          value: flatAdditional
-        });
-      }
-
-      const countryTags = (product.countries || [])
-        .map((c) => new Intl.DisplayNames(['en'], { type: 'region' }).of(c.toUpperCase()))
-        .filter(Boolean);
 
       const input = {
         title,
@@ -170,7 +138,7 @@ exports.handler = async () => {
         descriptionHtml: buildDescription(product, details),
         vendor: product.providerName || "Mobimatter",
         productType: "eSIM",
-        tags: countryTags,
+        tags: (product.countries || []).map(code => new Intl.DisplayNames(['en'], { type: 'region' }).of(code.toUpperCase())),
         published: true,
         metafields,
       };
@@ -204,6 +172,7 @@ exports.handler = async () => {
 
       const numericId = productId.split("/").pop();
 
+      // Upload provider image
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -214,9 +183,9 @@ exports.handler = async () => {
           body: JSON.stringify({ image: { src: product.providerLogo } }),
         });
         console.log(`🖼️ Image uploaded for: ${title}`);
-        imageUploaded.push(title);
       }
 
+      // Update price and stock
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
         headers: {
           "Content-Type": "application/json",
@@ -241,34 +210,50 @@ exports.handler = async () => {
               price: (product.retailPrice || 0).toFixed(2),
               sku: product.uniqueId,
               inventory_management: "shopify",
-              inventory_policy: "continue"
+              inventory_policy: "continue",
             },
           }),
         });
-        priceUpdated.push(title);
-        console.log(`💸 Price set for: ${title}`);
+
+        const locationsRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/locations.json`, {
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+        });
+
+        const locations = (await locationsRes.json()).locations;
+        const locationId = locations?.[0]?.id;
+
+        if (locationId) {
+          await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/inventory_levels/set.json`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+            },
+            body: JSON.stringify({
+              location_id: locationId,
+              inventory_item_id: inventoryItemId,
+              available: 999999,
+            }),
+          });
+          console.log(`📦 Inventory set at location ${locationId} for: ${title}`);
+        }
       }
 
       created.push(title);
       console.log(`✅ Created: ${title}`);
     }
 
-    console.log("🟢 Sync complete:");
-    console.log(`✅ Created: ${created.length}`);
+    console.log("✅ Sync finished");
+    console.log(`➕ Created: ${created.length}`);
     console.log(`⏭️ Skipped: ${skipped.length}`);
     console.log(`❌ Failed: ${failed.length}`);
-    console.log(`🖼️ Images Uploaded: ${imageUploaded.length}`);
-    console.log(`💸 Prices Set: ${priceUpdated.length}`);
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        created,
-        skipped,
-        failed,
-        imageUploaded,
-        priceUpdated
-      }),
+      body: JSON.stringify({ created, skipped, failed }),
     };
   } catch (err) {
     console.error("❌ Fatal error:", err.message);
