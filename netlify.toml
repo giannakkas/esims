@@ -1,17 +1,22 @@
 [build]
-functions = "netlify/functions"
+  functions = "netlify/functions"
 
+# Set function timeout (optional, affects all)
 [functions]
-  [functions.timeout]
-    default = 10  # Timeout in seconds
+  node_bundler = "esbuild"  # Optional but modern
+  external_node_modules = ["node-fetch"]  # Optional: avoids bundling issues
 
+# Scheduled function: mobimatter-background
 [[scheduled]]
   path = "/.netlify/functions/mobimatter-background"
   schedule = "0 */12 * * *"
 
+# Scheduled function: recover-esims
 [[scheduled]]
   path = "/.netlify/functions/recover-esims"
   schedule = "*/10 * * * *"
 
-[functions."mobimatter-sync-scheduled"]
-  schedule = "0 3 * * *" # every day at 03:00 UTC
+# Scheduled function: mobimatter-sync-scheduled
+[[scheduled]]
+  path = "/.netlify/functions/mobimatter-sync-scheduled"
+  schedule = "0 3 * * *"
