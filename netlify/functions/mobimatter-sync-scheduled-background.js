@@ -143,7 +143,6 @@ exports.handler = async () => {
         { namespace: "esim", key: "provider_logo", type: "single_line_text_field", value: product.providerLogo || "" },
       ];
 
-      // ✅ Correct metafield types:
       if (details["PLAN_DETAILS"]) {
         metafields.push({
           namespace: "esim",
@@ -154,11 +153,16 @@ exports.handler = async () => {
       }
 
       if (details["ADDITIONAL_DETAILS"]) {
+        const singleLine = details["ADDITIONAL_DETAILS"]
+          .replace(/\n/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 255);
         metafields.push({
           namespace: "esim",
           key: "additional_details",
           type: "single_line_text_field",
-          value: details["ADDITIONAL_DETAILS"]
+          value: singleLine
         });
       }
 
