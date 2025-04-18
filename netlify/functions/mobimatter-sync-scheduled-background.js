@@ -27,8 +27,8 @@ const buildDescription = (product, details) => {
     ? `${parseInt(rawValidity) / 24} days`
     : rawValidity;
 
-  const mobimatterDescription = product.description
-    ? `<div class="mobimatter-description"><hr />${product.description}</div>`
+  const mobimatterDescription = product.longDescription
+    ? `<div class="mobimatter-description"><hr />${product.longDescription}</div>`
     : "";
 
   return `
