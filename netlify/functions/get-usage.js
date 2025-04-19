@@ -1,5 +1,3 @@
-const fetch = require('node-fetch');
-
 exports.handler = async (event) => {
   const { orderId } = event.queryStringParameters;
 
@@ -10,13 +8,16 @@ exports.handler = async (event) => {
     };
   }
 
+  // Dynamically import node-fetch (v3+ compatible with CommonJS)
+  const fetch = (...args) =>
+    import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
   const apiKey = process.env.MOBIMATTER_API_KEY;
   const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
 
-  // Log headers for debugging
   console.log('DEBUG: Using headers:', {
     apiKey: apiKey ? '[present]' : '[missing]',
-    merchantId: merchantId ? '[present]' : '[missing]'
+    merchantId: merchantId ? '[present]' : '[missing]',
   });
 
   try {
@@ -24,12 +25,12 @@ exports.handler = async (event) => {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
-        'merchant-id': merchantId
+        'merchant-id': merchantId,
       }
     });
 
-    const raw = await response.text(); // Read raw response body
-    console.log('DEBUG: Raw response body:', raw.slice(0, 300)); // Log a snippet
+    const raw = await response.text();
+    console.log('DEBUG: Raw response body:', raw.slice(0, 300));
 
     let parsed;
     try {
@@ -38,7 +39,7 @@ exports.handler = async (event) => {
       return {
         statusCode: 500,
         body: JSON.stringify({
-          error: 'Invalid JSON response from Mobimatter',
+          error: 'Invalid JSON from Mobimatter',
           preview: raw.slice(0, 300)
         }),
       };
