@@ -1,23 +1,25 @@
 // File: netlify/functions/get-usage.js
 
-export async function handler(event) {
+export const handler = async (event) => {
   const { orderId } = event.queryStringParameters || {};
 
   if (!orderId) {
-    return new Response(JSON.stringify({ error: 'Missing orderId' }), {
-      status: 400,
+    return {
+      statusCode: 400,
       headers: { 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({ error: 'Missing orderId' }),
+    };
   }
 
   const apiKey = process.env.MOBIMATTER_API_KEY;
   const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
 
   if (!apiKey || !merchantId) {
-    return new Response(JSON.stringify({ error: 'Missing API credentials' }), {
-      status: 500,
+    return {
+      statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({ error: 'Missing API credentials' }),
+    };
   }
 
   try {
@@ -37,26 +39,30 @@ export async function handler(event) {
       const data = JSON.parse(text);
 
       if (!response.ok) {
-        return new Response(JSON.stringify({ error: data.message || 'Mobimatter error' }), {
-          status: response.status,
+        return {
+          statusCode: response.status,
           headers: { 'Content-Type': 'application/json' },
-        });
+          body: JSON.stringify({ error: data.message || 'Mobimatter error' }),
+        };
       }
 
-      return new Response(JSON.stringify(data), {
-        status: 200,
+      return {
+        statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
-      });
+        body: JSON.stringify(data),
+      };
     } catch (jsonErr) {
-      return new Response(JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }), {
-        status: 502,
+      return {
+        statusCode: 502,
         headers: { 'Content-Type': 'application/json' },
-      });
+        body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }),
+      };
     }
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Fetch error', message: err.message }), {
-      status: 500,
+    return {
+      statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-    });
+      body: JSON.stringify({ error: 'Fetch error', message: err.message }),
+    };
   }
-}
+};
