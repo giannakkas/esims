@@ -1,14 +1,13 @@
 exports.handler = async (event) => {
-  const { orderId } = event.queryStringParameters;
+  const { orderId, email } = event.queryStringParameters;
 
-  if (!orderId) {
+  if (!orderId || !email) {
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'Missing orderId' }),
+      body: JSON.stringify({ error: 'Missing orderId or email' }),
     };
   }
 
-  // Dynamically import node-fetch (v3+ compatible with CommonJS)
   const fetch = (...args) =>
     import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
@@ -21,47 +20,69 @@ exports.handler = async (event) => {
   });
 
   try {
-    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/usage`, {
+    // STEP 1: Convert external order code to internal UUID
+    const refRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${orderId}`, {
       method: 'GET',
       headers: {
         'x-api-key': apiKey,
         'merchant-id': merchantId,
-      }
+      },
     });
 
-    const raw = await response.text();
-    console.log('DEBUG: Raw response body:', raw.slice(0, 300));
-
-    let parsed;
+    const refRaw = await refRes.text();
+    let refData;
     try {
-      parsed = JSON.parse(raw);
+      refData = JSON.parse(refRaw);
     } catch (err) {
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: 'Invalid JSON from Mobimatter',
-          preview: raw.slice(0, 300)
-        }),
+        body: JSON.stringify({ error: 'Invalid JSON from /by-code', preview: refRaw.slice(0, 300) }),
       };
     }
 
-    if (!response.ok) {
+    if (!refRes.ok || !refData.id) {
       return {
-        statusCode: response.status,
-        body: JSON.stringify({
-          error: parsed.message || 'Mobimatter error',
-          details: parsed
-        }),
+        statusCode: 404,
+        body: JSON.stringify({ error: 'Order not found', details: refData }),
+      };
+    }
+
+    const internalId = refData.id;
+
+    // STEP 2: Now call /usage with internal ID
+    const usageRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalId}/usage`, {
+      method: 'GET',
+      headers: {
+        'x-api-key': apiKey,
+        'merchant-id': merchantId,
+        'email': email
+      },
+    });
+
+    const usageRaw = await usageRes.text();
+    let usageData;
+    try {
+      usageData = JSON.parse(usageRaw);
+    } catch (err) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Invalid JSON from /usage', preview: usageRaw.slice(0, 300) }),
+      };
+    }
+
+    if (!usageRes.ok) {
+      return {
+        statusCode: usageRes.status,
+        body: JSON.stringify({ error: usageData.message || 'Usage fetch failed', details: usageData }),
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ usage: parsed }),
+      body: JSON.stringify({ usage: usageData }),
     };
 
   } catch (error) {
-    console.error('Server exception:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Server error', details: error.message }),
