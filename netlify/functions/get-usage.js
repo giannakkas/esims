@@ -3,10 +3,25 @@
 export const handler = async (event) => {
   const { orderId } = event.queryStringParameters || {};
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*', // Allow calls from anywhere
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  };
+
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers,
+      body: 'OK',
+    };
+  }
+
   if (!orderId) {
     return {
       statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ error: 'Missing orderId' }),
     };
   }
@@ -17,7 +32,7 @@ export const handler = async (event) => {
   if (!apiKey || !merchantId) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ error: 'Missing API credentials' }),
     };
   }
@@ -41,27 +56,27 @@ export const handler = async (event) => {
       if (!response.ok) {
         return {
           statusCode: response.status,
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ error: data.message || 'Mobimatter error' }),
         };
       }
 
       return {
         statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(data),
       };
     } catch (jsonErr) {
       return {
         statusCode: 502,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }),
       };
     }
   } catch (err) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ error: 'Fetch error', message: err.message }),
     };
   }
