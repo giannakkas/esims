@@ -15,19 +15,28 @@ exports.handler = async (event) => {
       method: 'GET',
       headers: {
         'x-api-key': process.env.MOBIMATTER_API_KEY,
-        'Content-Type': 'application/json',
-      },
+        'merchant-id': process.env.MOBIMATTER_MERCHANT_ID
+      }
     });
 
-    if (!response.ok) {
-      const error = await response.json();
+    const raw = await response.text(); // read as plain text
+    let usage;
+
+    try {
+      usage = JSON.parse(raw); // attempt to parse
+    } catch (parseError) {
       return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: error.message || 'Failed to fetch usage' }),
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw }),
       };
     }
 
-    const usage = await response.json();
+    if (!response.ok) {
+      return {
+        statusCode: response.status,
+        body: JSON.stringify({ error: usage.message || 'Failed to fetch usage' }),
+      };
+    }
 
     return {
       statusCode: 200,
