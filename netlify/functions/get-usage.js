@@ -1,7 +1,7 @@
 // File: netlify/functions/get-usage.js
 
 export const handler = async (event) => {
-  const { orderId, email } = event.queryStringParameters || {};
+  const { orderId } = event.queryStringParameters || {};
 
   const headers = {
     'Content-Type': 'application/json',
@@ -17,11 +17,11 @@ export const handler = async (event) => {
     };
   }
 
-  if (!orderId && !email) {
+  if (!orderId) {
     return {
       statusCode: 400,
       headers,
-      body: JSON.stringify({ error: 'Missing orderId or email' }),
+      body: JSON.stringify({ error: 'Missing orderId' }),
     };
   }
 
@@ -39,32 +39,7 @@ export const handler = async (event) => {
   try {
     const fetch = (await import('node-fetch')).default;
 
-    let targetOrderId = orderId;
-
-    // If only email is provided, attempt to fetch order by email
-    if (!orderId && email) {
-      const emailRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-email/${email}`, {
-        headers: {
-          Accept: 'application/json',
-          'api-key': apiKey,
-          'merchantId': merchantId,
-        },
-      });
-
-      const emailData = await emailRes.json();
-
-      if (!emailRes.ok || !emailData?.orderCode) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({ error: 'Order not found for provided email' }),
-        };
-      }
-
-      targetOrderId = emailData.orderCode;
-    }
-
-    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/provider/usage/${targetOrderId}`, {
+    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/provider/usage/${orderId}`, {
       headers: {
         Accept: 'application/json',
         'api-key': apiKey,
