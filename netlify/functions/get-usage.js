@@ -60,6 +60,25 @@ export const handler = async (event) => {
         };
       }
 
+      // Bandwidth percentage calculations
+      const balanceText = data?.providerInfo?.data?.balance || '';
+      const match = balanceText.match(/used\s+(\d+(?:\.\d+)?)MB\s+out of\s+(\d+(?:\.\d+)?)/i);
+      if (match) {
+        const used = parseFloat(match[1]);
+        const total = parseFloat(match[2]);
+        const left = total - used;
+        const percentUsed = parseFloat(((used / total) * 100).toFixed(1));
+        const percentLeft = parseFloat((100 - percentUsed).toFixed(1));
+
+        data.usage = {
+          used,
+          total,
+          left,
+          percentUsed,
+          percentLeft
+        };
+      }
+
       return {
         statusCode: 200,
         headers,
