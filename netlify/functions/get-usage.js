@@ -8,43 +8,75 @@ exports.handler = async (event) => {
     };
   }
 
-  const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
-  const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
+  const fetch = (await import('node-fetch')).default;
 
-  console.log('⚙️ Step 1: Starting get-usage');
-  console.log('🔐 API Key:', MOBIMATTER_API_KEY ? '[present]' : '[missing]');
-  console.log('🏪 Merchant ID:', MOBIMATTER_MERCHANT_ID || '[missing]');
-  console.log('🧾 Order ID:', orderId);
+  const apiKey = process.env.MOBIMATTER_API_KEY;
+  const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
+
+  console.log('⚙️ Starting get-usage');
+  console.log('🔐 API Key:', apiKey ? '[present]' : '[missing]');
+  console.log('🏪 Merchant ID:', merchantId || '[missing]');
+  console.log('📦 Order Code:', orderId);
 
   try {
-    const fetch = (await import('node-fetch')).default;
-
-    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/usage`, {
+    // Step 1: Lookup internal ID from order code
+    const lookupRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/by-code/${orderId}`, {
+      method: 'GET',
       headers: {
-        'x-api-key': MOBIMATTER_API_KEY,
-        'merchantId': MOBIMATTER_MERCHANT_ID,
+        'x-api-key': apiKey,
+        'merchant-id': merchantId,
       }
     });
 
-    const raw = await response.text();
-    console.log('📦 Raw Response:', raw);
+    const lookupRaw = await lookupRes.text();
+    console.log('🔍 /by-code response:', lookupRaw.slice(0, 500));
 
-    let json;
+    let lookupJson;
     try {
-      json = JSON.parse(raw);
+      lookupJson = JSON.parse(lookupRaw);
     } catch (e) {
-      console.error('❌ Failed to parse JSON:', e.message);
       return {
         statusCode: 502,
-        body: JSON.stringify({ error: 'Invalid JSON response', raw }),
+        body: JSON.stringify({ error: 'Invalid JSON from /by-code', raw: lookupRaw }),
       };
     }
 
-    if (!response.ok) {
-      console.error('❌ Mobimatter Error:', json.message || 'Unknown');
+    if (!lookupRes.ok || !lookupJson.id) {
       return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: json.message || 'Failed to fetch usage' }),
+        statusCode: 404,
+        body: JSON.stringify({ error: 'Order not found', details: lookupJson }),
+      };
+    }
+
+    const internalId = lookupJson.id;
+    console.log('✅ Internal Order ID:', internalId);
+
+    // Step 2: Get usage info from internal ID
+    const usageRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${internalId}/usage`, {
+      method: 'GET',
+      headers: {
+        'x-api-key': apiKey,
+        'merchant-id': merchantId,
+      }
+    });
+
+    const usageRaw = await usageRes.text();
+    console.log('📡 /usage response:', usageRaw.slice(0, 500));
+
+    let usageJson;
+    try {
+      usageJson = JSON.parse(usageRaw);
+    } catch (e) {
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: 'Invalid JSON from /usage', raw: usageRaw }),
+      };
+    }
+
+    if (!usageRes.ok) {
+      return {
+        statusCode: usageRes.status,
+        body: JSON.stringify({ error: usageJson.message || 'Usage fetch failed' }),
       };
     }
 
@@ -52,17 +84,18 @@ exports.handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         usage: {
-          remainingData: json.planData,
-          usedData: json.usedData,
-          remainingValidity: json.validityDays + ' days',
+          remainingData: usageJson.planData || 'N/A',
+          usedData: usageJson.usedData || 'N/A',
+          remainingValidity: (usageJson.validityDays || 'N/A') + ' days',
         }
       }),
     };
-  } catch (error) {
-    console.error('❌ Exception thrown:', error);
+
+  } catch (err) {
+    console.error('❌ Exception:', err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Server error', message: error.message }),
+      body: JSON.stringify({ error: 'Unexpected server error', message: err.message }),
     };
   }
 };
