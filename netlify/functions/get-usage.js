@@ -1,7 +1,4 @@
-// File: netlify/functions/get-usage.js
-import fetch from 'node-fetch';
-
-export const handler = async (event) => {
+exports.handler = async (event) => {
   const { orderId } = event.queryStringParameters;
 
   if (!orderId) {
@@ -20,6 +17,8 @@ export const handler = async (event) => {
   console.log('🧾 Order ID:', orderId);
 
   try {
+    const fetch = (await import('node-fetch')).default;
+
     const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/usage`, {
       headers: {
         'x-api-key': MOBIMATTER_API_KEY,
@@ -63,3 +62,4 @@ export const handler = async (event) => {
     };
   }
 };
+
