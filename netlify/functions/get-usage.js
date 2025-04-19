@@ -1,53 +1,60 @@
-// File: netlify/functions/get-usage.js
+export default async (event) => {
+  const { orderId } = event.queryStringParameters || {};
 
-export default async (req, res) => {
-  console.log('⚙️ Starting get-usage');
+  if (!orderId) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Missing orderId' }),
+    };
+  }
 
-  const { orderId } = req.query;
   const apiKey = process.env.MOBIMATTER_API_KEY;
   const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
 
-  if (!orderId) {
-    return res.status(400).json({ error: 'Missing orderId' });
-  }
   if (!apiKey || !merchantId) {
-    return res.status(500).json({ error: 'Missing API credentials' });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Missing API credentials' }),
+    };
   }
-
-  console.log('🔐 API Key:', '[present]');
-  console.log('🏪 Merchant ID:', merchantId);
-  console.log('📦 Order Code:', orderId);
-
-  const endpoint = `https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}`;
 
   try {
-    const usageRes = await fetch(endpoint, {
-      method: 'GET',
+    const fetch = (await import('node-fetch')).default;
+
+    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/provider/usage/${orderId}`, {
       headers: {
-        'apiKey': apiKey,
+        Accept: 'text/plain',
+        'api-key': apiKey,
         'merchantId': merchantId,
-        'Content-Type': 'application/json'
-      }
+      },
     });
 
-    const raw = await usageRes.text();
-    console.log('📨 Raw response body:', raw);
+    const text = await response.text();
 
-    let json;
     try {
-      json = JSON.parse(raw);
-    } catch (parseError) {
-      return res.status(500).json({ error: 'Invalid JSON in response', details: raw });
-    }
+      const data = JSON.parse(text);
 
-    if (!usageRes.ok || json.statusCode === 404) {
-      console.log('🚫 Mobimatter Error:', json.message);
-      return res.status(usageRes.status).json({ error: json.message || 'Failed to fetch usage info' });
-    }
+      if (!response.ok) {
+        return {
+          statusCode: response.status,
+          body: JSON.stringify({ error: data.message || 'Mobimatter error' }),
+        };
+      }
 
-    return res.status(200).json({ usage: json });
+      return {
+        statusCode: 200,
+        body: JSON.stringify(data),
+      };
+    } catch (jsonErr) {
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }),
+      };
+    }
   } catch (err) {
-    console.error('❌ Unexpected Error:', err);
-    return res.status(500).json({ error: 'Server error', details: err.message });
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Fetch error', message: err.message }),
+    };
   }
 };
