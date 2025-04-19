@@ -1,21 +1,23 @@
-export default async (event) => {
+// File: netlify/functions/get-usage.js
+
+export async function handler(event) {
   const { orderId } = event.queryStringParameters || {};
 
   if (!orderId) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: 'Missing orderId' }),
-    };
+    return new Response(JSON.stringify({ error: 'Missing orderId' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const apiKey = process.env.MOBIMATTER_API_KEY;
   const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
 
   if (!apiKey || !merchantId) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Missing API credentials' }),
-    };
+    return new Response(JSON.stringify({ error: 'Missing API credentials' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {
@@ -35,26 +37,26 @@ export default async (event) => {
       const data = JSON.parse(text);
 
       if (!response.ok) {
-        return {
-          statusCode: response.status,
-          body: JSON.stringify({ error: data.message || 'Mobimatter error' }),
-        };
+        return new Response(JSON.stringify({ error: data.message || 'Mobimatter error' }), {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
 
-      return {
-        statusCode: 200,
-        body: JSON.stringify(data),
-      };
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
     } catch (jsonErr) {
-      return {
-        statusCode: 502,
-        body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }),
-      };
+      return new Response(JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw: text }), {
+        status: 502,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Fetch error', message: err.message }),
-    };
+    return new Response(JSON.stringify({ error: 'Fetch error', message: err.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
-};
+}
