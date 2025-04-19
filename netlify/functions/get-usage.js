@@ -5,7 +5,7 @@ export const handler = async (event) => {
 
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': 'https://esimszone.com', // Secure: only allow Shopify domain
+    'Access-Control-Allow-Origin': 'https://esimszone.com',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   };
 
@@ -42,7 +42,7 @@ export const handler = async (event) => {
 
     const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/provider/usage/${orderId}`, {
       headers: {
-        Accept: 'text/plain',
+        Accept: 'application/json',
         'api-key': apiKey,
         'merchantId': merchantId,
       },
