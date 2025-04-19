@@ -26,40 +26,43 @@ exports.handler = async (event) => {
       }
     });
 
-    const content = await response.text();
+    const raw = await response.text();
+    console.log('📦 Raw Response:', raw);
 
+    let json;
     try {
-      const data = JSON.parse(content);
-
-      if (!response.ok) {
-        return {
-          statusCode: response.status,
-          body: JSON.stringify({ error: data.message || 'Failed to fetch usage' }),
-        };
-      }
-
+      json = JSON.parse(raw);
+    } catch (e) {
+      console.error('❌ Failed to parse JSON:', e.message);
       return {
-        statusCode: 200,
-        body: JSON.stringify({
-          usage: {
-            remainingData: data.planData,
-            usedData: data.usedData,
-            remainingValidity: data.validityDays + ' days',
-          }
-        }),
-      };
-    } catch (parseErr) {
-      console.error('❌ JSON parse error:', content);
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'Invalid JSON response from Mobimatter' }),
+        statusCode: 502,
+        body: JSON.stringify({ error: 'Invalid JSON response', raw }),
       };
     }
+
+    if (!response.ok) {
+      console.error('❌ Mobimatter Error:', json.message || 'Unknown');
+      return {
+        statusCode: response.status,
+        body: JSON.stringify({ error: json.message || 'Failed to fetch usage' }),
+      };
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        usage: {
+          remainingData: json.planData,
+          usedData: json.usedData,
+          remainingValidity: json.validityDays + ' days',
+        }
+      }),
+    };
   } catch (error) {
+    console.error('❌ Exception thrown:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Server error', message: error.message }),
     };
   }
 };
-
