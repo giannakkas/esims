@@ -5,7 +5,7 @@ export const handler = async (event) => {
 
   const headers = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*', // Allow calls from anywhere
+    'Access-Control-Allow-Origin': 'https://esimszone.com', // Secure: only allow Shopify domain
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
   };
 
