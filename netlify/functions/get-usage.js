@@ -10,39 +10,57 @@ exports.handler = async (event) => {
     };
   }
 
+  const apiKey = process.env.MOBIMATTER_API_KEY;
+  const merchantId = process.env.MOBIMATTER_MERCHANT_ID;
+
+  // Log headers for debugging
+  console.log('DEBUG: Using headers:', {
+    apiKey: apiKey ? '[present]' : '[missing]',
+    merchantId: merchantId ? '[present]' : '[missing]'
+  });
+
   try {
     const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${orderId}/usage`, {
       method: 'GET',
       headers: {
-        'x-api-key': process.env.MOBIMATTER_API_KEY,
-        'merchant-id': process.env.MOBIMATTER_MERCHANT_ID
+        'x-api-key': apiKey,
+        'merchant-id': merchantId
       }
     });
 
-    const raw = await response.text(); // read as plain text
-    let usage;
+    const raw = await response.text(); // Read raw response body
+    console.log('DEBUG: Raw response body:', raw.slice(0, 300)); // Log a snippet
 
+    let parsed;
     try {
-      usage = JSON.parse(raw); // attempt to parse
-    } catch (parseError) {
+      parsed = JSON.parse(raw);
+    } catch (err) {
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: 'Invalid JSON from Mobimatter', raw }),
+        body: JSON.stringify({
+          error: 'Invalid JSON response from Mobimatter',
+          preview: raw.slice(0, 300)
+        }),
       };
     }
 
     if (!response.ok) {
       return {
         statusCode: response.status,
-        body: JSON.stringify({ error: usage.message || 'Failed to fetch usage' }),
+        body: JSON.stringify({
+          error: parsed.message || 'Mobimatter error',
+          details: parsed
+        }),
       };
     }
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ usage }),
+      body: JSON.stringify({ usage: parsed }),
     };
+
   } catch (error) {
+    console.error('Server exception:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: 'Server error', details: error.message }),
