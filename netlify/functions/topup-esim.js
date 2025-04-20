@@ -1,35 +1,19 @@
 // File: netlify/functions/topup-esim.js
 
 export const handler = async (event) => {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers,
-      body: 'OK',
-    };
-  }
-
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' }),
+      body: JSON.stringify({ error: 'Method not allowed' })
     };
   }
 
-  const { addOnIdentifier, productId } = JSON.parse(event.body || '{}');
+  const { orderId, productId } = JSON.parse(event.body || '{}');
 
-  if (!addOnIdentifier || !productId) {
+  if (!orderId || !productId) {
     return {
       statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'Missing addOnIdentifier or productId' }),
+      body: JSON.stringify({ error: 'Missing orderId or productId' })
     };
   }
 
@@ -39,8 +23,7 @@ export const handler = async (event) => {
   if (!apiKey || !merchantId) {
     return {
       statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Missing API credentials' }),
+      body: JSON.stringify({ error: 'Missing Mobimatter credentials' })
     };
   }
 
@@ -52,12 +35,12 @@ export const handler = async (event) => {
       headers: {
         'Content-Type': 'application/json',
         'api-key': apiKey,
-        'merchantId': merchantId,
+        'merchantId': merchantId
       },
       body: JSON.stringify({
-        productId: productId,
-        addOnIdentifier: addOnIdentifier,
-      }),
+        productId,
+        addOnIdentifier: orderId
+      })
     });
 
     const result = await response.json();
@@ -65,21 +48,18 @@ export const handler = async (event) => {
     if (!response.ok) {
       return {
         statusCode: response.status,
-        headers,
-        body: JSON.stringify({ error: result.message || 'Top-up failed' }),
+        body: JSON.stringify({ error: result.message || 'Failed to create top-up order' })
       };
     }
 
     return {
       statusCode: 200,
-      headers,
-      body: JSON.stringify(result),
+      body: JSON.stringify(result)
     };
-  } catch (err) {
+  } catch (error) {
     return {
       statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Fetch error', message: err.message }),
+      body: JSON.stringify({ error: 'Top-up error', message: error.message })
     };
   }
 };
