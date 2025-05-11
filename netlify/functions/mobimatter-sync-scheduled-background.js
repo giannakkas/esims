@@ -252,6 +252,9 @@ exports.handler = async () => {
     logs.push(`⏭️ Skipped: ${skipped.length}`);
     logs.push(`❌ Failed: ${failed.length}`);
 
+    // Print logs to Netlify dashboard
+    logs.forEach(line => console.log(line));
+
     return {
       statusCode: 200,
       body: JSON.stringify({
