@@ -52,24 +52,20 @@ const buildDescription = (details) => {
     .trim();
 };
 
-// Helper to fetch all products from Mobimatter with pagination
-async function fetchAllMobimatterProducts(apiUrl, headers) {
-  let allProducts = [];
-  let page = 1;
-  const pageSize = 100; // Adjust if Mobimatter allows a higher limit
-  let hasMore = true;
-
-  while (hasMore) {
-    const url = `${apiUrl}?page=${page}&pageSize=${pageSize}`;
-    const response = await fetch(url, { headers });
+// Helper to fetch all unique products from Mobimatter by repeating the request 200 times
+async function fetchAllMobimatterProductsBruteForce(apiUrl, headers, times = 200) {
+  const allProducts = new Map();
+  for (let i = 0; i < times; i++) {
+    console.log(`Fetching batch ${i + 1} of ${times}...`);
+    const response = await fetch(apiUrl, { headers });
     const data = await response.json();
     const products = data?.result || [];
-    allProducts = allProducts.concat(products);
-    // If less than pageSize returned, we're done
-    hasMore = products.length === pageSize;
-    page++;
+    for (const product of products) {
+      allProducts.set(product.uniqueId, product); // Only unique products by uniqueId
+    }
   }
-  return allProducts;
+  console.log(`Total unique products fetched: ${allProducts.size}`);
+  return [...allProducts.values()];
 }
 
 exports.handler = async () => {
@@ -85,13 +81,14 @@ exports.handler = async () => {
   const created = [], skipped = [], failed = [], detailed = [];
 
   try {
-    console.log("📡 Fetching all products from Mobimatter API (with pagination)...");
+    console.log("📡 Fetching all products from Mobimatter API by repeating request 200 times (brute force)...");
     const mobimatterHeaders = {
       "api-key": MOBIMATTER_API_KEY,
       merchantId: MOBIMATTER_MERCHANT_ID,
+      Accept: "text/plain"
     };
-    const products = await fetchAllMobimatterProducts(MOBIMATTER_API_URL, mobimatterHeaders);
-    console.log(`Fetched ${products.length} products from Mobimatter.`);
+    const products = await fetchAllMobimatterProductsBruteForce(MOBIMATTER_API_URL, mobimatterHeaders, 200);
+    console.log(`Fetched ${products.length} unique products from Mobimatter.`);
 
     if (!Array.isArray(products)) throw new Error("Invalid product array");
 
