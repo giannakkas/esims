@@ -6,17 +6,48 @@ export async function handler(event) {
   const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
   const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
 
-  const { shopifyOrderId, mobimatterOrderId } = event.queryStringParameters;
+  const { shopifyOrderId, mobimatterOrderId: queryMobimatterId } = event.queryStringParameters;
 
-  if (!shopifyOrderId || !mobimatterOrderId) {
-    return {
-      statusCode: 400,
-      body: 'Missing shopifyOrderId or mobimatterOrderId'
-    };
+  if (!shopifyOrderId) {
+    return { statusCode: 400, body: 'Missing shopifyOrderId' };
   }
 
   try {
-    // 1. Get Mobimatter order info
+    let mobimatterOrderId = queryMobimatterId;
+
+    if (!mobimatterOrderId) {
+      // Try to fetch it from Shopify metafield
+      const metafieldRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: 'POST',
+        headers: {
+          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query: `
+            query {
+              order(id: "gid://shopify/Order/${shopifyOrderId}") {
+                metafield(namespace: "esim", key: "mobimatter_order_id") {
+                  value
+                }
+              }
+            }
+          `
+        })
+      });
+
+      const metafieldData = await metafieldRes.json();
+      mobimatterOrderId = metafieldData?.data?.order?.metafield?.value;
+
+      if (!mobimatterOrderId) {
+        return {
+          statusCode: 404,
+          body: 'Mobimatter order ID not found in Shopify metafield'
+        };
+      }
+    }
+
+    // Fetch Mobimatter order
     const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
       headers: {
         'Accept': 'text/plain',
@@ -26,8 +57,6 @@ export async function handler(event) {
     });
 
     const data = await response.json();
-
-    // 2. Get QR code from lineItemDetails
     const details = data?.result?.orderLineItem?.lineItemDetails;
     const qrItem = details?.find(d => d.name === 'QR_CODE');
     const qrBase64 = qrItem?.value;
@@ -39,7 +68,7 @@ export async function handler(event) {
       };
     }
 
-    // 3. Save QR code to Shopify order metafield via GraphQL
+    // Save QR code to Shopify order metafield
     const gqlRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
       method: 'POST',
       headers: {
@@ -55,16 +84,11 @@ export async function handler(event) {
                 namespace: "esim",
                 key: "qr_code",
                 type: "multi_line_text_field",
-                value: """${qrBase64}"""
+                value: "${qrBase64}"
               }]
             }) {
-              order {
-                id
-              }
-              userErrors {
-                field
-                message
-              }
+              order { id }
+              userErrors { field message }
             }
           }
         `
