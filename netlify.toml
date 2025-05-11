@@ -3,7 +3,8 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["axios", "node-fetch"]
+  external_node_modules = ["node-fetch"]
+
 
 # Scheduled function: mobimatter-background
 [[scheduled]]
