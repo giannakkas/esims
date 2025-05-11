@@ -1,193 +1,118 @@
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+export async function handler(event) {
+  const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_KEY;
+  const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION;
 
-exports.handler = async (event) => {
+  const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
+  const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
+
+  const { shopifyOrderId, mobimatterOrderId: queryMobimatterId } = event.queryStringParameters;
+
+  if (!shopifyOrderId) {
+    return { statusCode: 400, body: 'Missing shopifyOrderId' };
+  }
+
   try {
-    const {
-      MOBIMATTER_API_KEY,
-      MOBIMATTER_MERCHANT_ID
-    } = process.env;
+    let mobimatterOrderId = queryMobimatterId;
 
-    const order = JSON.parse(event.body);
-    const lineItem = order?.line_items?.[0];
-    const email = order?.email;
-    const shopifyOrderId = order?.id;
-
-    const productId = lineItem?.sku?.trim();
-    const productCategory = "esim_realtime";
-
-    if (!productId || !email) {
-      console.error("❌ Missing SKU or email. Order data:", {
-        sku: lineItem?.sku,
-        email,
-        orderId: shopifyOrderId
-      });
-
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing SKU or email in Shopify order." })
-      };
-    }
-
-    // 1️⃣ CREATE ORDER
-    const createPayload = {
-      productId,
-      productCategory,
-      label: `ShopifyOrder-${shopifyOrderId}`
-    };
-
-    console.log("📦 Creating Mobimatter order:", createPayload);
-
-    const createRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID
-      },
-      body: JSON.stringify(createPayload)
-    });
-
-    const createText = await createRes.text();
-    console.log("📨 Create response:", createText);
-
-    if (!createRes.ok) {
-      return {
-        statusCode: createRes.status,
-        body: JSON.stringify({ error: "Failed to create order", details: createText })
-      };
-    }
-
-    let orderId;
-    try {
-      const createData = JSON.parse(createText);
-      orderId = createData?.result?.orderId;
-    } catch (err) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Invalid response from create order" })
-      };
-    }
-
-    if (!orderId) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "No orderId returned" })
-      };
-    }
-
-    console.log("✅ Mobimatter order created:", orderId);
-
-    // 2️⃣ COMPLETE ORDER
-    const completePayload = {
-      orderId,
-      notes: `Shopify Order ${shopifyOrderId}`
-    };
-
-    console.log("🧾 Completing order:", completePayload);
-
-    const completeRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/order/complete", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/plain",
-        "api-key": MOBIMATTER_API_KEY,
-        merchantId: MOBIMATTER_MERCHANT_ID
-      },
-      body: JSON.stringify(completePayload)
-    });
-
-    const completeText = await completeRes.text();
-    console.log(`📬 Complete response (status: ${completeRes.status}):`, completeText);
-
-    if (!completeRes.ok) {
-      return {
-        statusCode: completeRes.status,
-        body: JSON.stringify({
-          error: "Failed to complete Mobimatter order",
-          status: completeRes.status,
-          response: completeText
-        })
-      };
-    }
-
-    // 3️⃣ SEND MOBIMATTER EMAIL
-    console.log("✉️ Preparing to send Mobimatter email...");
-
-    const emailPayload = {
-      orderId,
-      customer: {
-        id: `${shopifyOrderId}`,
-        name: `${order?.shipping_address?.name || "No Name"}`,
-        email,
-        ccEmail: email,
-        phone: order?.shipping_address?.phone || ""
-      },
-      amountCharged: Number(order?.total_price || 0),
-      currency: `${order?.currency || "USD"}`,
-      merchantOrderId: `ShopifyOrder-${shopifyOrderId}`
-    };
-
-    console.log("📦 Email Payload:", JSON.stringify(emailPayload, null, 2));
-
-    try {
-      const emailRes = await fetch("https://api.mobimatter.com/mobimatter/api/v2/email", {
-        method: "POST",
+    if (!mobimatterOrderId) {
+      // Try to fetch it from Shopify metafield
+      const metafieldRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          Accept: "text/plain",
-          "api-key": MOBIMATTER_API_KEY,
-          merchantId: MOBIMATTER_MERCHANT_ID
+          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+          'Content-Type': 'application/json'
         },
-        body: JSON.stringify(emailPayload)
+        body: JSON.stringify({
+          query: `
+            query {
+              order(id: "gid://shopify/Order/${shopifyOrderId}") {
+                metafield(namespace: "esim", key: "mobimatter_order_id") {
+                  value
+                }
+              }
+            }
+          `
+        })
       });
 
-      const emailText = await emailRes.text();
-      console.log(`📤 Email response (status ${emailRes.status}):`, emailText);
+      const metafieldData = await metafieldRes.json();
+      mobimatterOrderId = metafieldData?.data?.order?.metafield?.value;
 
-      if (!emailRes.ok) {
-        console.warn("⚠️ Mobimatter email API returned a non-200 status");
+      if (!mobimatterOrderId) {
         return {
-          statusCode: emailRes.status,
-          body: JSON.stringify({
-            success: true,
-            mobimatterOrderId: orderId,
-            message: "Order completed, but email not sent",
-            emailError: emailText
-          })
+          statusCode: 404,
+          body: 'Mobimatter order ID not found in Shopify metafield'
         };
       }
+    }
 
-      console.log("✅ Mobimatter email sent successfully");
+    // Fetch Mobimatter order
+    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
+      headers: {
+        'Accept': 'text/plain',
+        'merchantId': MOBIMATTER_MERCHANT_ID,
+        'api-key': MOBIMATTER_API_KEY
+      }
+    });
 
-    } catch (emailErr) {
-      console.error("❌ Email send failed with error:", emailErr.message);
+    const data = await response.json();
+    const details = data?.result?.orderLineItem?.lineItemDetails;
+    const qrItem = details?.find(d => d.name === 'QR_CODE');
+    const qrBase64 = qrItem?.value;
+
+    if (!qrBase64) {
       return {
-        statusCode: 500,
-        body: JSON.stringify({
-          success: true,
-          mobimatterOrderId: orderId,
-          message: "Order completed, but email failed",
-          error: emailErr.message
-        })
+        statusCode: 202,
+        body: 'QR code not found in lineItemDetails yet'
       };
     }
 
-    // ✅ ALL DONE
+    // Save QR code to Shopify order metafield
+    const gqlRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: {
+        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: `
+          mutation {
+            orderUpdate(input: {
+              id: "gid://shopify/Order/${shopifyOrderId}",
+              metafields: [{
+                namespace: "esim",
+                key: "qr_code",
+                type: "multi_line_text_field",
+                value: "${qrBase64}"
+              }]
+            }) {
+              order { id }
+              userErrors { field message }
+            }
+          }
+        `
+      })
+    });
+
+    const result = await gqlRes.json();
+
+    if (result?.data?.orderUpdate?.userErrors?.length) {
+      return {
+        statusCode: 500,
+        body: `Shopify GraphQL error: ${JSON.stringify(result.data.orderUpdate.userErrors)}`
+      };
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        success: true,
-        mobimatterOrderId: orderId,
-        message: "Order created, completed, and email sent"
-      })
+      body: 'QR code saved to Shopify order metafield'
     };
 
   } catch (err) {
-    console.error("❌ Unexpected error:", err.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Unexpected error", message: err.message })
+      body: `Error: ${err.message}`
     };
   }
-};
+}
