@@ -39,29 +39,50 @@ export async function handler(event) {
       };
     }
 
-    // 3. Save QR to Shopify order note
-    const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}.json`, {
-      method: 'PUT',
+    // 3. Save QR code to Shopify order metafield via GraphQL
+    const gqlRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      method: 'POST',
       headers: {
         'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        order: {
-          id: shopifyOrderId,
-          note: `qr_code:${qrBase64}`
-        }
+        query: `
+          mutation {
+            orderUpdate(input: {
+              id: "gid://shopify/Order/${shopifyOrderId}",
+              metafields: [{
+                namespace: "esim",
+                key: "qr_code",
+                type: "multi_line_text_field",
+                value: """${qrBase64}"""
+              }]
+            }) {
+              order {
+                id
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }
+        `
       })
     });
 
-    if (!shopifyRes.ok) {
-      const error = await shopifyRes.text();
-      throw new Error(`Shopify update failed: ${error}`);
+    const result = await gqlRes.json();
+
+    if (result?.data?.orderUpdate?.userErrors?.length) {
+      return {
+        statusCode: 500,
+        body: `Shopify GraphQL error: ${JSON.stringify(result.data.orderUpdate.userErrors)}`
+      };
     }
 
     return {
       statusCode: 200,
-      body: 'QR code saved to Shopify order note successfully'
+      body: 'QR code saved to Shopify order metafield'
     };
 
   } catch (err) {
