@@ -4,7 +4,10 @@ exports.handler = async (event) => {
   try {
     const {
       MOBIMATTER_API_KEY,
-      MOBIMATTER_MERCHANT_ID
+      MOBIMATTER_MERCHANT_ID,
+      SHOPIFY_ADMIN_API_KEY,
+      SHOPIFY_STORE_DOMAIN,
+      SHOPIFY_API_VERSION
     } = process.env;
 
     const order = JSON.parse(event.body);
@@ -173,7 +176,41 @@ exports.handler = async (event) => {
       };
     }
 
-    // 4️⃣ TRIGGER QR CODE STORAGE
+    // 4️⃣ Save Mobimatter Order ID as Metafield
+    try {
+      const gqlRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query: `
+            mutation {
+              orderUpdate(input: {
+                id: "gid://shopify/Order/${shopifyOrderId}",
+                metafields: [{
+                  namespace: "esim",
+                  key: "mobimatter_order_id",
+                  type: "single_line_text_field",
+                  value: "${orderId}"
+                }]
+              }) {
+                order { id }
+                userErrors { field message }
+              }
+            }
+          `
+        })
+      });
+
+      const gqlData = await gqlRes.json();
+      console.log("📝 Saved Mobimatter order ID to metafield:", gqlData);
+    } catch (gqlErr) {
+      console.error("❌ Failed to save Mobimatter order ID to Shopify:", gqlErr.message);
+    }
+
+    // 5️⃣ Trigger QR Code Storage
     try {
       const triggerQr = await fetch(`https://esimszone.netlify.app/.netlify/functions/store-qr-code?shopifyOrderId=${shopifyOrderId}&mobimatterOrderId=${orderId}`);
       const qrText = await triggerQr.text();
@@ -188,7 +225,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        message: "Order created, completed, email sent, and QR sync triggered"
+        message: "Order created, completed, email sent, QR saved, and order ID stored"
       })
     };
 
