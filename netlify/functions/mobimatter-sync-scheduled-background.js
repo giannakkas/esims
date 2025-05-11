@@ -101,8 +101,14 @@ exports.handler = async () => {
       const checkJson = await checkRes.json();
       const exists = checkJson?.data?.products?.edges?.length > 0;
       if (exists) {
-        console.log(`⏭️ Skipped: ${title}`);
+        console.log(`⏭️ Skipped (already exists): ${title}`);
         skipped.push(title);
+        continue;
+      }
+
+      if (!product.retailPrice || product.retailPrice <= 0) {
+        console.warn(`⚠️ Skipping product due to invalid price: ${title}`);
+        failed.push(`${title} (Invalid Price)`);
         continue;
       }
 
@@ -159,12 +165,19 @@ exports.handler = async () => {
       const productId = json?.data?.productCreate?.product?.id;
 
       if (!productId) {
-        console.error(`❌ Failed to create: ${title}`, json?.data?.productCreate?.userErrors);
+        console.error(`❌ Failed to create: ${title}`);
+        if (json?.data?.productCreate?.userErrors?.length) {
+          json.data.productCreate.userErrors.forEach(err => {
+            console.error(`   🔸 Error: ${err.field} - ${err.message}`);
+          });
+        }
         failed.push(title);
         continue;
       }
 
       const numericId = productId.split("/").pop();
+
+      let imageUploaded = false;
 
       if (product.providerLogo?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
@@ -175,7 +188,23 @@ exports.handler = async () => {
           },
           body: JSON.stringify({ image: { src: product.providerLogo } }),
         });
-        console.log(`🖼️ Image uploaded for: ${title}`);
+        imageUploaded = true;
+        console.log(`🖼️ Provider logo uploaded for: ${title}`);
+      } else if (product.productImages?.[0]?.startsWith("http")) {
+        await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": SHOPIFY_ADMIN_API_KEY,
+          },
+          body: JSON.stringify({ image: { src: product.productImages[0] } }),
+        });
+        imageUploaded = true;
+        console.log(`🖼️ Product image uploaded for: ${title}`);
+      }
+
+      if (!imageUploaded) {
+        console.warn(`⚠️ No image available for: ${title}`);
       }
 
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
@@ -199,7 +228,7 @@ exports.handler = async () => {
           body: JSON.stringify({
             variant: {
               id: variantId,
-              price: (product.retailPrice || 0).toFixed(2),
+              price: (product.retailPrice).toFixed(2),
               sku: product.uniqueId,
               inventory_management: "shopify",
               inventory_policy: "continue"
