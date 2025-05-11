@@ -78,7 +78,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array");
 
-    for (const product of products.slice(0, 2000)) {
+    for (const product of products.slice(0, 20)) {
       const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
