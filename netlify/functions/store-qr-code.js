@@ -1,9 +1,7 @@
-const fetch = require('node-fetch');
-
-exports.handler = async (event) => {
-  // ✅ Replace this with your real Admin API token
-  const SHOPIFY_ACCESS_TOKEN = 'your-shopify-access-token';
-  const SHOPIFY_STORE_DOMAIN = 'esimszone.com';
+export async function handler(event) {
+  const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_KEY;
+  const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION;
 
   const { shopifyOrderId, mobimatterOrderId } = event.queryStringParameters;
 
@@ -15,7 +13,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Step 1: Get QR code from Mobimatter
+    // 1. Fetch Mobimatter order info
     const mobimatterRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`);
     const mobimatterData = await mobimatterRes.json();
 
@@ -28,8 +26,8 @@ exports.handler = async (event) => {
       };
     }
 
-    // Step 2: Save QR code in Shopify order note
-    const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-04/orders/${shopifyOrderId}.json`, {
+    // 2. Update order note in Shopify
+    const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}.json`, {
       method: 'PUT',
       headers: {
         'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
@@ -44,7 +42,8 @@ exports.handler = async (event) => {
     });
 
     if (!shopifyRes.ok) {
-      throw new Error('Failed to update Shopify order');
+      const text = await shopifyRes.text();
+      throw new Error(`Shopify error: ${text}`);
     }
 
     return {
@@ -58,4 +57,4 @@ exports.handler = async (event) => {
       body: `Error: ${error.message}`
     };
   }
-};
+}
