@@ -12,8 +12,9 @@ export async function handler(event) {
   const mobimatterRes = await fetch('https://api.mobimatter.com/mobimatter/api/v2/order/REVO-9801123', {
     method: 'GET',
     headers: {
-      'x-api-key': MOBIMATTER_API_KEY,
-      'x-merchant-id': MOBIMATTER_MERCHANT_ID
+      'Accept': 'text/plain',
+      'merchantId': MOBIMATTER_MERCHANT_ID,
+      'api-key': MOBIMATTER_API_KEY
     }
   });
 
