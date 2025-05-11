@@ -13,42 +13,14 @@ export async function handler(event) {
   }
 
   try {
-    // 1. Fetch Mobimatter order info
+    // 🔍 Step 1: Log full Mobimatter response
     const mobimatterRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`);
     const mobimatterData = await mobimatterRes.json();
 
-    const qrUrl = mobimatterData?.activation?.imageUrl;
-
-    if (!qrUrl) {
-      return {
-        statusCode: 202,
-        body: 'QR code not ready yet'
-      };
-    }
-
-    // 2. Update order note in Shopify
-    const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}.json`, {
-      method: 'PUT',
-      headers: {
-        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        order: {
-          id: shopifyOrderId,
-          note: `qr_code:${qrUrl}`
-        }
-      })
-    });
-
-    if (!shopifyRes.ok) {
-      const text = await shopifyRes.text();
-      throw new Error(`Shopify error: ${text}`);
-    }
-
+    // TEMP: Return full JSON so we can inspect it
     return {
       statusCode: 200,
-      body: 'QR code saved to Shopify order note'
+      body: JSON.stringify(mobimatterData, null, 2)
     };
 
   } catch (error) {
