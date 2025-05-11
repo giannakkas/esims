@@ -1,79 +1,20 @@
 export async function handler(event) {
-  const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_KEY;
-  const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
-  const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION;
-
   const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
   const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
 
-  const { shopifyOrderId, mobimatterOrderId } = event.queryStringParameters;
-
-  if (!shopifyOrderId || !mobimatterOrderId) {
-    return {
-      statusCode: 400,
-      body: 'Missing shopifyOrderId or mobimatterOrderId'
-    };
-  }
-
-  try {
-    // 1. Fetch order from Mobimatter
-    const response = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
-      headers: {
-        'Accept': 'text/plain',
-        'merchantId': MOBIMATTER_MERCHANT_ID,
-        'api-key': MOBIMATTER_API_KEY
-      }
-    });
-
-    const data = await response.json();
-
-    if (!data?.result?.activation) {
-      return {
-        statusCode: 404,
-        body: 'No activation data found in Mobimatter response'
-      };
+  const mobimatterRes = await fetch('https://api.mobimatter.com/mobimatter/api/v2/order/REVO-9801123', {
+    method: 'GET',
+    headers: {
+      'Accept': 'text/plain',
+      'merchantId': MOBIMATTER_MERCHANT_ID,
+      'api-key': MOBIMATTER_API_KEY
     }
+  });
 
-    // 2. Find the QR_CODE item
-    const qrItem = data.result.activation.find(item => item.name === 'QR_CODE');
-    const qrBase64 = qrItem?.value;
+  const data = await mobimatterRes.json();
 
-    if (!qrBase64) {
-      return {
-        statusCode: 202,
-        body: 'QR code not found in activation array yet'
-      };
-    }
-
-    // 3. Save to Shopify order note
-    const shopifyRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}.json`, {
-      method: 'PUT',
-      headers: {
-        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        order: {
-          id: shopifyOrderId,
-          note: `qr_code:${qrBase64}`
-        }
-      })
-    });
-
-    if (!shopifyRes.ok) {
-      const error = await shopifyRes.text();
-      throw new Error(`Shopify update failed: ${error}`);
-    }
-
-    return {
-      statusCode: 200,
-      body: 'QR code saved to Shopify order note successfully'
-    };
-
-  } catch (err) {
-    return {
-      statusCode: 500,
-      body: `Error: ${err.message}`
-    };
-  }
+  return {
+    statusCode: 200,
+    body: JSON.stringify(data, null, 2)
+  };
 }
