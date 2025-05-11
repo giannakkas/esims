@@ -1,74 +1,82 @@
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+
 exports.handler = async (event) => {
   const { shopifyOrderId, mobimatterOrderId } = event.queryStringParameters;
 
   if (!shopifyOrderId || !mobimatterOrderId) {
     return {
       statusCode: 400,
-      body: 'Missing order parameters.'
+      body: 'Missing order ID',
     };
   }
 
+  const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
+  const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
+  const SHOPIFY_ADMIN_API_KEY = process.env.SHOPIFY_ADMIN_API_KEY;
+  const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+  const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION;
+
   try {
-    // 1. Fetch Mobimatter order info
-    const mmRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
-      headers: { 'x-api-key': process.env.MOBIMATTER_API_KEY }
-    });
-    const mmData = await mmRes.json();
-
-    const details = mmData?.result?.orderLineItem?.lineItemDetails || [];
-    const qrItem = details.find(d => d.name === 'QR_CODE');
-    const mobimatterId = mmData?.result?.orderId;
-
-    if (!qrItem?.value || !mobimatterId) {
-      return {
-        statusCode: 200,
-        body: 'No activation data found in Mobimatter response'
-      };
-    }
-
-    // 2. Send to Shopify order metafields
-    const metafields = [
-      {
-        namespace: "esim",
-        key: "qr_code",
-        type: "single_line_text_field",
-        value: qrItem.value
-      },
-      {
-        namespace: "esim",
-        key: "mobimatter_order_id",
-        type: "single_line_text_field",
-        value: mobimatterId
-      }
-    ];
-
-    const shopifyRes = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/metafields.json`, {
-      method: "POST",
+    // Step 1: Fetch Mobimatter activation
+    const mmResponse = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
       headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_KEY
+        'x-api-key': MOBIMATTER_API_KEY,
+        'x-merchant-id': MOBIMATTER_MERCHANT_ID,
       },
-      body: JSON.stringify({ metafields })
     });
 
-    const result = await shopifyRes.json();
+    const mmData = await mmResponse.json();
 
-    if (result.errors) {
+    const qrUrl = mmData?.activation?.imageUrl;
+    if (!qrUrl) {
       return {
-        statusCode: 500,
-        body: `Shopify update failed: ${JSON.stringify(result)}`
+        statusCode: 404,
+        body: 'No activation data found in Mobimatter response',
       };
     }
+
+    // Step 2: Update Shopify order metafields
+    const response = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/metafields.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_KEY,
+      },
+      body: JSON.stringify({
+        metafield: {
+          namespace: 'esim',
+          key: 'qr_code',
+          type: 'single_line_text_field',
+          value: qrUrl,
+        },
+      }),
+    });
+
+    await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/metafields.json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': SHOPIFY_ADMIN_API_KEY,
+      },
+      body: JSON.stringify({
+        metafield: {
+          namespace: 'esim',
+          key: 'mobimatter_order_id',
+          type: 'single_line_text_field',
+          value: mobimatterOrderId,
+        },
+      }),
+    });
 
     return {
       statusCode: 200,
-      body: 'QR code saved to Shopify order metafield'
+      body: 'QR code and order ID saved to Shopify metafields',
     };
 
   } catch (err) {
     return {
       statusCode: 500,
-      body: `Server error: ${err.message}`
+      body: `Server error: ${err.message}`,
     };
   }
 };
