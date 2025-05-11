@@ -1,5 +1,3 @@
-
-const axios = require('axios');
 const fetch = require('node-fetch');
 
 exports.handler = async (event) => {
@@ -8,86 +6,77 @@ exports.handler = async (event) => {
   if (!shopifyOrderId || !mobimatterOrderId) {
     return {
       statusCode: 400,
-      body: 'Missing Shopify or Mobimatter Order ID',
+      body: 'Missing order parameters.'
     };
   }
 
-  // Mobimatter credentials
-  const MOBIMATTER_API_KEY = process.env.MOBIMATTER_API_KEY;
-  const MOBIMATTER_MERCHANT_ID = process.env.MOBIMATTER_MERCHANT_ID;
-
   try {
-    const mobiResponse = await axios.get(
-      `https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`,
-      {
-        headers: {
-          'api-key': MOBIMATTER_API_KEY,
-          'merchantId': MOBIMATTER_MERCHANT_ID,
-          'Accept': 'text/plain',
-        },
-      }
-    );
+    // Step 1: Get Mobimatter Order Info
+    const mmResponse = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
+      headers: { 'x-api-key': process.env.MOBIMATTER_API_KEY }
+    });
+    const mmData = await mmResponse.json();
 
-    const activationInfo = mobiResponse?.data?.result?.orderLineItem?.lineItemDetails || [];
-    const qrEntry = activationInfo.find((item) => item.name === 'QR_CODE');
-
-    if (!qrEntry || !qrEntry.value) {
+    if (!mmData?.result?.orderLineItem?.lineItemDetails) {
       return {
         statusCode: 200,
-        body: 'No activation data found in Mobimatter response',
+        body: 'No activation data found in Mobimatter response'
       };
     }
 
-    // Save QR Code + Mobimatter Order ID to Shopify metafields
-    const shopifyResponse = await fetch(`https://${process.env.SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${shopifyOrderId}/metafields.json`, {
-      method: 'POST',
-      headers: {
-        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN,
-        'Content-Type': 'application/json',
+    const qrItem = mmData.result.orderLineItem.lineItemDetails.find(d => d.name === 'QR_CODE');
+    const mobimatterOrderIdItem = mmData.result.orderId;
+
+    if (!qrItem || !qrItem.value) {
+      return {
+        statusCode: 200,
+        body: 'No QR code found'
+      };
+    }
+
+    // Step 2: Save QR and Order ID to Shopify Order Metafields
+    const metafields = [
+      {
+        namespace: "esim",
+        key: "qr_code",
+        type: "single_line_text_field",
+        value: qrItem.value
       },
-      body: JSON.stringify({
-        metafield: {
-          namespace: 'esim',
-          key: 'qr_code',
-          type: 'single_line_text_field',
-          value: qrEntry.value,
-        },
-      }),
+      {
+        namespace: "esim",
+        key: "mobimatter_order_id",
+        type: "single_line_text_field",
+        value: mobimatterOrderIdItem
+      }
+    ];
+
+    const shopifyRes = await fetch(`https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/${process.env.SHOPIFY_API_VERSION}/orders/${shopifyOrderId}/metafields.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_KEY
+      },
+      body: JSON.stringify({ metafields })
     });
 
-    if (!shopifyResponse.ok) {
-      const errorText = await shopifyResponse.text();
+    const shopifyData = await shopifyRes.json();
+
+    if (shopifyData.errors) {
       return {
         statusCode: 500,
-        body: `Shopify update failed: ${errorText}`,
+        body: `Shopify update failed: ${JSON.stringify(shopifyData)}`
       };
     }
-
-    // Also store Mobimatter Order ID
-    await fetch(`https://${process.env.SHOPIFY_DOMAIN}/admin/api/2024-01/orders/${shopifyOrderId}/metafields.json`, {
-      method: 'POST',
-      headers: {
-        'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        metafield: {
-          namespace: 'esim',
-          key: 'mobimatter_order_id',
-          type: 'single_line_text_field',
-          value: mobimatterOrderId,
-        },
-      }),
-    });
 
     return {
       statusCode: 200,
-      body: 'QR code saved to Shopify order metafield',
+      body: 'QR code saved to Shopify order metafield'
     };
-  } catch (error) {
+
+  } catch (err) {
     return {
       statusCode: 500,
-      body: `Error: ${error.message || error}`,
+      body: `Server error: ${err.message}`
     };
   }
 };
