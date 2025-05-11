@@ -173,13 +173,22 @@ exports.handler = async (event) => {
       };
     }
 
+    // 4️⃣ TRIGGER QR CODE STORAGE
+    try {
+      const triggerQr = await fetch(`https://esimszone.netlify.app/.netlify/functions/store-qr-code?shopifyOrderId=${shopifyOrderId}&mobimatterOrderId=${orderId}`);
+      const qrText = await triggerQr.text();
+      console.log("📌 QR Code sync triggered:", qrText);
+    } catch (qrErr) {
+      console.error("❌ Failed to trigger QR code sync:", qrErr.message);
+    }
+
     // ✅ ALL DONE
     return {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
         mobimatterOrderId: orderId,
-        message: "Order created, completed, and email sent"
+        message: "Order created, completed, email sent, and QR sync triggered"
       })
     };
 
