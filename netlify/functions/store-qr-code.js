@@ -1,5 +1,3 @@
-const fetch = require('node-fetch');
-
 exports.handler = async (event) => {
   const { shopifyOrderId, mobimatterOrderId } = event.queryStringParameters;
 
@@ -11,30 +9,24 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Step 1: Get Mobimatter Order Info
-    const mmResponse = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
+    // 1. Fetch Mobimatter order info
+    const mmRes = await fetch(`https://api.mobimatter.com/mobimatter/api/v2/order/${mobimatterOrderId}`, {
       headers: { 'x-api-key': process.env.MOBIMATTER_API_KEY }
     });
-    const mmData = await mmResponse.json();
+    const mmData = await mmRes.json();
 
-    if (!mmData?.result?.orderLineItem?.lineItemDetails) {
+    const details = mmData?.result?.orderLineItem?.lineItemDetails || [];
+    const qrItem = details.find(d => d.name === 'QR_CODE');
+    const mobimatterId = mmData?.result?.orderId;
+
+    if (!qrItem?.value || !mobimatterId) {
       return {
         statusCode: 200,
         body: 'No activation data found in Mobimatter response'
       };
     }
 
-    const qrItem = mmData.result.orderLineItem.lineItemDetails.find(d => d.name === 'QR_CODE');
-    const mobimatterOrderIdItem = mmData.result.orderId;
-
-    if (!qrItem || !qrItem.value) {
-      return {
-        statusCode: 200,
-        body: 'No QR code found'
-      };
-    }
-
-    // Step 2: Save QR and Order ID to Shopify Order Metafields
+    // 2. Send to Shopify order metafields
     const metafields = [
       {
         namespace: "esim",
@@ -46,7 +38,7 @@ exports.handler = async (event) => {
         namespace: "esim",
         key: "mobimatter_order_id",
         type: "single_line_text_field",
-        value: mobimatterOrderIdItem
+        value: mobimatterId
       }
     ];
 
@@ -59,12 +51,12 @@ exports.handler = async (event) => {
       body: JSON.stringify({ metafields })
     });
 
-    const shopifyData = await shopifyRes.json();
+    const result = await shopifyRes.json();
 
-    if (shopifyData.errors) {
+    if (result.errors) {
       return {
         statusCode: 500,
-        body: `Shopify update failed: ${JSON.stringify(shopifyData)}`
+        body: `Shopify update failed: ${JSON.stringify(result)}`
       };
     }
 
