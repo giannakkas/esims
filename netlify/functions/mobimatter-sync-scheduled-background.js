@@ -84,7 +84,7 @@ exports.handler = async () => {
 
     if (!Array.isArray(products)) throw new Error("Invalid product array");
 
-    for (const product of products.slice(0, 2000)) {
+    for (const product of products.slice(0, 20)) {
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
       const handle = `${slugify(title)}-${product.uniqueId.slice(0, 6)}`;
