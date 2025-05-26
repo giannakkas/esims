@@ -31,7 +31,7 @@ const buildDescription = (details) => {
         : "";
       planDetailsHtml = `<div class="plan-details">${heading}${description}${items}</div>`;
     } catch (err) {
-      console.error("⚠️ PLAN_DETAILS parse error", err.message);
+      console.error("\u26A0\uFE0F PLAN_DETAILS parse error", err.message);
     }
   }
 
@@ -47,7 +47,7 @@ const buildDescription = (details) => {
   }
 
   return (`${planDetailsHtml}${additionalHtml}`)
-    .replace(/(<(br|p|div)[^>]*>\s*<\/(br|p|div)>|\s|<br\s*\/?>)+$/gi, '')
+    .replace(/(<(br|p|div)[^>]*>\s*<\/(br|p|div)>|\s|<br\s*\/?\>)+$/gi, '')
     .replace(/\s+$/, '')
     .trim();
 };
@@ -64,8 +64,14 @@ exports.handler = async () => {
   const MOBIMATTER_API_URL = "https://api.mobimatter.com/mobimatter/api/v2/products";
   const created = [], skipped = [], failed = [];
 
+  const slugify = str =>
+    str
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
   try {
-    console.log("📡 Fetching from Mobimatter API...");
+    console.log("\ud83d\udcf1 Fetching from Mobimatter API...");
     const response = await fetch(MOBIMATTER_API_URL, {
       headers: {
         "api-key": MOBIMATTER_API_KEY,
@@ -79,9 +85,9 @@ exports.handler = async () => {
     if (!Array.isArray(products)) throw new Error("Invalid product array");
 
     for (const product of products.slice(0, 2000)) {
-      const handle = `mobimatter-${product.uniqueId}`.toLowerCase();
       const details = getProductDetails(product);
       const title = details.PLAN_TITLE || product.productFamilyName || "Unnamed eSIM";
+      const handle = `${slugify(title)}-${product.uniqueId.slice(0, 6)}`;
 
       const checkQuery = `{
         products(first: 1, query: "handle:${handle}") {
@@ -101,13 +107,13 @@ exports.handler = async () => {
       const checkJson = await checkRes.json();
       const exists = checkJson?.data?.products?.edges?.length > 0;
       if (exists) {
-        console.log(`⏭️ Skipped (already exists): ${title}`);
+        console.log(`\u23ED\ufe0f Skipped (already exists): ${title}`);
         skipped.push(title);
         continue;
       }
 
       if (!product.retailPrice || product.retailPrice <= 0) {
-        console.warn(`⚠️ Skipping product due to invalid price: ${title}`);
+        console.warn(`\u26a0\ufe0f Skipping product due to invalid price: ${title}`);
         failed.push(`${title} (Invalid Price)`);
         continue;
       }
@@ -122,7 +128,7 @@ exports.handler = async () => {
         : rawValidity;
 
       const metafields = [
-        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "📶 5G" : "📱 4G" },
+        { namespace: "esim", key: "fiveg", type: "single_line_text_field", value: details.FIVEG === "1" ? "\ud83d\udcf6 5G" : "\ud83d\udcf1 4G" },
         { namespace: "esim", key: "countries", type: "single_line_text_field", value: countryNamesWithFlags.join(", ") },
         { namespace: "esim", key: "topup", type: "single_line_text_field", value: details.TOPUP === "1" ? "Available" : "Not Available" },
         { namespace: "esim", key: "validity", type: "single_line_text_field", value: validityInDays },
@@ -165,10 +171,10 @@ exports.handler = async () => {
       const productId = json?.data?.productCreate?.product?.id;
 
       if (!productId) {
-        console.error(`❌ Failed to create: ${title}`);
+        console.error(`\u274c Failed to create: ${title}`);
         if (json?.data?.productCreate?.userErrors?.length) {
           json.data.productCreate.userErrors.forEach(err => {
-            console.error(`   🔸 Error: ${err.field} - ${err.message}`);
+            console.error(`   \ud83d\udd38 Error: ${err.field} - ${err.message}`);
           });
         }
         failed.push(title);
@@ -189,7 +195,7 @@ exports.handler = async () => {
           body: JSON.stringify({ image: { src: product.providerLogo } }),
         });
         imageUploaded = true;
-        console.log(`🖼️ Provider logo uploaded for: ${title}`);
+        console.log(`\ud83d\uddbc\ufe0f Provider logo uploaded for: ${title}`);
       } else if (product.productImages?.[0]?.startsWith("http")) {
         await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/images.json`, {
           method: "POST",
@@ -200,11 +206,11 @@ exports.handler = async () => {
           body: JSON.stringify({ image: { src: product.productImages[0] } }),
         });
         imageUploaded = true;
-        console.log(`🖼️ Product image uploaded for: ${title}`);
+        console.log(`\ud83d\uddbc\ufe0f Product image uploaded for: ${title}`);
       }
 
       if (!imageUploaded) {
-        console.warn(`⚠️ No image available for: ${title}`);
+        console.warn(`\u26a0\ufe0f No image available for: ${title}`);
       }
 
       const variantRes = await fetch(`https://${SHOPIFY_STORE_DOMAIN}/admin/api/${SHOPIFY_API_VERSION}/products/${numericId}/variants.json`, {
@@ -259,25 +265,25 @@ exports.handler = async () => {
               available: 999999,
             }),
           });
-          console.log(`📦 Inventory set at location ${locationId} for: ${title}`);
+          console.log(`\ud83d\ude9e Inventory set at location ${locationId} for: ${title}`);
         }
       }
 
       created.push(title);
-      console.log(`✅ Created: ${title}`);
+      console.log(`\u2705 Created: ${title}`);
     }
 
-    console.log("✅ Sync complete.");
-    console.log(`➕ Created: ${created.length}`);
-    console.log(`⏭️ Skipped: ${skipped.length}`);
-    console.log(`❌ Failed: ${failed.length}`);
+    console.log("\u2705 Sync complete.");
+    console.log(`\u2795 Created: ${created.length}`);
+    console.log(`\u23ED\ufe0f Skipped: ${skipped.length}`);
+    console.log(`\u274c Failed: ${failed.length}`);
 
     return {
       statusCode: 200,
       body: JSON.stringify({ created, skipped, failed }),
     };
   } catch (err) {
-    console.error("❌ Fatal error:", err.message);
+    console.error("\u274c Fatal error:", err.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message }),
